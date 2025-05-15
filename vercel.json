@@ -1,6 +1,6 @@
 {
     "routes": [
-      { "src": "/", "dest": "/landing-page.html" }
+      { "src": "/", "dest": "/landing-page" }
     ],
     "cleanUrls": true,
     "trailingSlash": false
