@@ -1,10 +1,6 @@
 {
-    "version": 2,
-    "rewrites": [
-      {
-        "source": "/",
-        "destination": "/landing-page.html"
-      }
+    "routes": [
+      { "src": "/", "dest": "/landing-page.html" }
     ],
     "cleanUrls": true,
     "trailingSlash": false
