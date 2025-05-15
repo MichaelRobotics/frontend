@@ -1,7 +1,7 @@
 {
-    "routes": [
-      { "src": "/", "dest": "/landing-page" }
+    "redirects": [
+      { "source": "/", "destination": "/landing-page.html", "permanent": true }
     ],
-    "cleanUrls": true,
-    "trailingSlash": false
-  }
+    "cleanUrls": true
+}
+  
