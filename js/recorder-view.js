@@ -23,8 +23,6 @@ const RecorderView = (() => {
 
 
     function getHTML() {
-        // This HTML is from your original RecorderView (Part 3 of the 4-part JS)
-        // MODIFIED to include the Download PDF button in the analysis view
         return `
         <header class="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-xl sticky top-0 z-40">
             <div class="container mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center">
@@ -101,9 +99,9 @@ const RecorderView = (() => {
             <div id="analysis-view-rec" class="view-section max-w-5xl mx-auto glass-effect p-7 sm:p-10 hidden fade-in">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-5">
                     <h2 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-3 md:mb-0" id="analysis-meeting-title-rec">Analysis</h2>
-                    <div class="flex flex-wrap gap-2 self-start md:self-center"> {/* MODIFIED for PDF button */}
+                    <div class="flex flex-wrap gap-2 self-start md:self-center">
                         <button id="download-transcript-btn-rec" class="btn-primary-blue btn-hover flex items-center text-sm"><i class="fas fa-file-alt mr-2 icon-hover"></i> Transcript</button>
-                        <button id="download-pdf-btn-rec" class="btn-success btn-hover flex items-center text-sm"> {/* ADDED PDF Button */}
+                        <button id="download-pdf-btn-rec" class="btn-success btn-hover flex items-center text-sm">
                             <i class="fas fa-file-pdf mr-2 icon-hover"></i> Download PDF Report
                         </button>
                     </div>
@@ -316,13 +314,6 @@ const RecorderView = (() => {
     }
     
     // --- All other functions from your original js/recorder-view.js (Part 6) should be here ---
-    // (showRecorderView, renderRecorderMeetingList, populateAudioInputDevicesRec, 
-    //  handleStartScheduledRecording, handleStartAdHocRecording, handleResumeRecordingSession,
-    //  startActualRecording, updateRecorderRecordingUI, updateRecorderTimer, formatDurationRec,
-    //  handlePauseResumeRec, stopActualRecording, handleMediaRecorderCleanup, handleActualRecordingStop,
-    //  setupAudioVisualizerRec, stopAudioVisualizerRec, initiateRecorderAnalysis, handleViewRecorderAnalysis, handleDeepLink)
-    // For brevity, I'm only including the modified ones and the new one.
-    // Make sure the full content of js/recorder-view.js (from Part 6) is used as the base.
     function showRecorderView(viewName) {
         if (!meetingListViewRec || !recordingViewRec || !analysisViewRec || !backToListBtnRec) { return; }
         meetingListViewRec.classList.add('hidden');
