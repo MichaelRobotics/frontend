@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Salesperson Dashboard - Meeting Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/main-app-styles.css">
+</head>
+<body class="salesperson-view-active"> <div id="app-notification" class="fixed bottom-6 right-6 w-full max-w-sm glass-effect p-5 shadow-2xl pointer-events-none opacity-0 transform translate-x-full rounded-xl z-[100] hidden">
+        <div class="flex items-start">
+            <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5">
+                </div>
+            <div class="flex-grow">
+                <p id="app-notification-message" class="text-sm text-gray-800 font-semibold"></p>
+            </div>
+            <button id="app-notification-close" class="flex-shrink-0 ml-4 text-gray-500 hover:text-gray-800 transition-colors duration-200 focus:outline-none opacity-70 hover:opacity-100">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+    </div>
+
+    <div id="salesperson-view-container" class="min-h-screen flex flex-col">
+        </div>
+
+    <script src="js/shared-app-logic.js"></script>
+    <script src="js/salesperson-view.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize global notifications from shared logic
+            SharedAppLogic.initGlobalNotifications();
+
+            // Basic authentication check
+            const storedUser = localStorage.getItem(SharedAppLogic.USER_STORAGE_KEY);
+            if (!storedUser) {
+                SharedAppLogic.showGlobalNotification('Access denied. Please sign in.', 'error', 3000);
+                setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
+                return; // Stop further execution
+            }
+            // You might want to add role-specific auth check here if your USER_STORAGE_KEY stores roles
+
+            const viewContainer = document.getElementById('salesperson-view-container');
+            if (viewContainer && typeof SalespersonView !== 'undefined') {
+                // Inject the HTML content for the salesperson view
+                viewContainer.innerHTML = SalespersonView.getHTML();
+
+                // Initialize the SalespersonView module
+                // Note: SharedAppLogic.loadMeetings() is called when shared-app-logic.js is parsed.
+                SalespersonView.init(
+                    SharedAppLogic.getMeetings(),          // Pass the loaded meetings data
+                    SharedAppLogic.showGlobalNotification, // Callback for notifications
+                    (targetView) => {                      // Callback for view switching
+                        if (targetView === 'index') {
+                            window.location.href = 'app-main-dashboard.html';
+                        }
+                        // Add other specific navigation if SalespersonView needs to trigger them
+                    },
+                    SharedAppLogic.generateId,             // Utility to generate IDs
+                    SharedAppLogic.generateRecorderLink,   // Utility to generate recorder links
+                    SharedAppLogic.saveMeetings,           // Callback to save meetings data
+                    SharedAppLogic.setButtonLoadingState,  // Utility for button loading states
+                    SharedAppLogic.getMeetingById          // Utility to get a specific meeting
+                );
+            } else {
+                console.error("Salesperson view container or SalespersonView module not found.");
+                SharedAppLogic.showGlobalNotification("Error loading salesperson module.", "error");
+            }
+        });
+    </script>
+</body>
+</html>

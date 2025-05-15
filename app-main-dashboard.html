@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Dashboard - Meeting Analysis System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/main-app-styles.css">
+</head>
+<body class="index-view-active"> <div id="app-notification" class="fixed bottom-6 right-6 w-full max-w-sm glass-effect p-5 shadow-2xl pointer-events-none opacity-0 transform translate-x-full rounded-xl z-[100] hidden">
+        <div class="flex items-start">
+            <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5">
+                </div>
+            <div class="flex-grow">
+                <p id="app-notification-message" class="text-sm text-gray-800 font-semibold"></p>
+            </div>
+            <button id="app-notification-close" class="flex-shrink-0 ml-4 text-gray-500 hover:text-gray-800 transition-colors duration-200 focus:outline-none opacity-70 hover:opacity-100">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="min-h-screen flex flex-col">
+        <header class="bg-gradient-to-r from-gray-700 to-gray-800 text-white shadow-xl sticky top-0 z-50">
+            <div class="container mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center">
+                <h1 class="text-xl sm:text-2xl font-bold mb-3 sm:mb-0 text-center sm:text-left tracking-tight flex items-center">
+                    <i class="fas fa-cogs mr-3 text-2xl opacity-90"></i>Meeting Analysis System
+                </h1>
+                <div class="flex items-center">
+                    <span id="user-name-dashboard" class="text-sm text-gray-300 mr-4 hidden sm:inline"></span>
+                    <button id="logout-dashboard-btn" class="btn-header bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium btn-hover">
+                        <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main class="flex-grow container mx-auto p-5 sm:p-8 flex items-center justify-center">
+            <div class="w-full max-w-3xl glass-effect p-8 sm:p-12 rounded-3xl shadow-2xl text-center">
+                <h2 class="text-3xl sm:text-4xl font-extrabold text-gray-800 mb-6">Application Dashboard</h2>
+                <p class="text-gray-600 mb-10 text-lg">Welcome! Please select the application role you wish to access.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+                    <a href="salesperson.html" id="select-salesperson-role-db" class="role-card-dashboard group p-8 rounded-xl btn-hover bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg flex flex-col items-center justify-center transition-all duration-300 ease-in-out transform hover:scale-105">
+                        <i class="fas fa-user-tie text-5xl mb-4 transition-transform duration-300 group-hover:scale-110"></i>
+                        <span class="block font-semibold text-2xl">Salesperson</span>
+                        <span class="text-sm opacity-90 mt-1">Manage Meetings & Insights</span>
+                    </a>
+                    <a href="recorder.html" id="select-recorder-role-db" class="role-card-dashboard group p-8 rounded-xl btn-hover bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg flex flex-col items-center justify-center transition-all duration-300 ease-in-out transform hover:scale-105">
+                        <i class="fas fa-microphone-alt text-5xl mb-4 transition-transform duration-300 group-hover:scale-110"></i>
+                        <span class="block font-semibold text-2xl">Recorder</span>
+                        <span class="text-sm opacity-90 mt-1">Record & Process Audio</span>
+                    </a>
+                    </div>
+                 <p class="mt-10 text-xs text-gray-500">Select a role above to proceed to the respective application view. Your session is managed via local storage.</p>
+            </div>
+        </main>
+
+        <footer class="bg-gray-800 text-white py-6 text-center mt-auto">
+            <p class="text-sm">&copy; <span id="current-year-dashboard"></span> Meeting Analysis System. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <script src="js/shared-app-logic.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize global notifications from shared logic
+            SharedAppLogic.initGlobalNotifications();
+
+            const storedUser = localStorage.getItem(SharedAppLogic.USER_STORAGE_KEY);
+            
+            if (!storedUser) {
+                // If no user session, redirect to landing page
+                SharedAppLogic.showGlobalNotification('Please sign in to access the dashboard.', 'warning', 3000);
+                setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
+                return; // Stop further execution for this page
+            }
+
+            try {
+                const user = JSON.parse(storedUser);
+                const userNameDisplay = document.getElementById('user-name-dashboard');
+                if (userNameDisplay && user && user.name) {
+                    userNameDisplay.textContent = `Welcome, ${user.name.split('@')[0]}!`;
+                    userNameDisplay.classList.remove('hidden');
+                }
+            } catch (e) {
+                console.error("Error parsing user data from localStorage:", e);
+                localStorage.removeItem(SharedAppLogic.USER_STORAGE_KEY); // Clear corrupted data
+                SharedAppLogic.showGlobalNotification('Session error. Please sign in again.', 'error', 3000);
+                setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
+                return;
+            }
+            
+            const logoutButton = document.getElementById('logout-dashboard-btn');
+            if (logoutButton) {
+                logoutButton.addEventListener('click', () => {
+                    localStorage.removeItem(SharedAppLogic.USER_STORAGE_KEY);
+                    // Also clear any meeting data if logout means full session end
+                    // localStorage.removeItem('integratedMeetingsApp'); // Decide if this is desired
+                    SharedAppLogic.showGlobalNotification('You have been logged out successfully.', 'info', 2000);
+                    setTimeout(() => { window.location.href = 'landing-page.html'; }, 2000);
+                });
+            }
+
+            const currentYearSpan = document.getElementById('current-year-dashboard');
+            if(currentYearSpan) {
+                currentYearSpan.textContent = new Date().getFullYear();
+            }
+
+            // Optional: Pre-load meetings data if not already done by shared logic,
+            // though shared-app-logic.js loads it on its own execution.
+            // SharedAppLogic.loadMeetings(); 
+            // console.log("Meetings on dashboard:", SharedAppLogic.getMeetings());
+
+            SharedAppLogic.showGlobalNotification('Welcome to the App Dashboard!', 'success');
+        });
+    </script>
+</body>
+</html>

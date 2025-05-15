@@ -1,0 +1,300 @@
+/* /css/main-app-styles.css */
+:root {
+    /* Base Variables */
+    --glass-opacity: 0.9;
+    --base-text-color: #374151; /* gray-700 */
+    --base-font-size: 16px;
+
+    /* Green Theme (Client) */
+    --primary-gradient-green: linear-gradient(135deg, #e6f9f0 0%, #d1f0e0 100%);
+    --green-300: #86efac; /* Added for hover states */
+    --green-400: #4ade80;
+    --green-500: #22c55e;
+    --green-600: #16a34a;
+    --green-700: #15803d;
+    --green-800: #166534;
+    --green-900: #14532d;
+
+    /* Blue Theme (Recorder) */
+    --primary-gradient-blue: linear-gradient(135deg, #e0f2fe 0%, #d0e9fd 100%);
+    --blue-300: #93c5fd;
+    --blue-400: #60a5fa;
+    --blue-500: #3b82f6;
+    --blue-600: #2563eb;
+    --blue-700: #1d4ed8;
+    --blue-800: #1e40af;
+    --blue-900: #1e3a8a;
+
+    /* Purple Theme (Salesperson) */
+    --primary-gradient-purple: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+    --purple-300: #c084fc;
+    --purple-400: #a855f7;
+    --purple-500: #9333ea;
+    --purple-600: #7e22ce;
+    --purple-700: #6b21a8;
+    --purple-800: #581c87;
+    --purple-900: #4c1d95;
+    
+    /* Common Colors */
+    --red-500: #ef4444;
+    --red-600: #dc2626;
+    --yellow-500: #eab308;
+    --yellow-600: #ca8a04;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+    color: var(--base-text-color);
+    font-size: var(--base-font-size);
+    transition: background 0.5s ease-out; /* Smooth background transition */
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Default body background, will be overridden by view-specific classes */
+body.index-view-active { background: linear-gradient(135deg, #f0f4f8 0%, #e6e9ed 100%); }
+body.client-view-active { background: var(--primary-gradient-green); }
+body.recorder-view-active { background: var(--primary-gradient-blue); }
+body.salesperson-view-active { background: var(--primary-gradient-purple); }
+
+
+@media (prefers-reduced-motion: reduce) {
+    .animate-slide-in, .notification-show, .fade-in, .btn-hover, .icon-hover, .animate-pulse-custom, .status-recording, .status-processing {
+        animation: none !important;
+        transition: none !important;
+        transform: none !important;
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.7s ease-out forwards;
+    opacity: 0;
+    animation-delay: calc(var(--delay, 0) * 0.1s);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Global Notification Styles (used by shared-app-logic.js) */
+#app-notification {
+    /* position, z-index, etc. are set inline on the element in each HTML */
+}
+.notification-show {
+    animation: slideInRightApp 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+.notification-hide {
+    animation: slideOutRightApp 0.45s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards;
+}
+
+@keyframes slideInRightApp {
+    from { transform: translateX(110%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+@keyframes slideOutRightApp {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(110%); opacity: 0; }
+}
+
+.btn-hover {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-hover:hover {
+    transform: translateY(-3.5px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.10), 0 4px 8px rgba(0,0,0,0.08);
+}
+.btn-hover:active {
+    transform: scale(0.95) translateY(-1px);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.08);
+}
+
+.icon-hover {
+    transition: transform 0.3s ease;
+}
+.btn-hover:hover .icon-hover {
+    transform: scale(1.18) rotate(3deg);
+}
+
+.glass-effect {
+    background: rgba(255, 255, 255, var(--glass-opacity));
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 16px 64px -12px rgba(0,0,0, 0.10), 0 8px 24px -8px rgba(0,0,0, 0.08);
+    border-radius: 1.25rem; /* rounded-2xl */
+}
+
+.error { color: var(--red-500); font-weight: 500; }
+
+/* Markdown Content Styles (common) */
+.markdown-content ul { list-style-type: disc; margin-left: 24px; margin-bottom: 1.1rem; }
+.markdown-content ol { list-style-type: decimal; margin-left: 24px; margin-bottom: 1.1rem; }
+.markdown-content p { margin-bottom: 0.85rem; line-height: 1.75; color: #4b5563; font-size: 0.95rem; }
+.markdown-content em { font-style: italic; }
+
+/* Theme-specific markdown styles */
+.client-view-active .markdown-content h1, 
+.client-view-active .markdown-content h2, 
+.client-view-active .markdown-content h3 { color: var(--green-900); font-weight: 700; margin-bottom: 0.85rem; margin-top: 1.5rem; }
+.client-view-active .markdown-content strong { color: var(--green-800); font-weight: 600; }
+.client-view-active .markdown-content a { color: var(--green-600); text-decoration: underline; font-weight: 500; }
+.client-view-active .markdown-content a:hover { color: var(--green-700); }
+
+.recorder-view-active .markdown-content h1, 
+.recorder-view-active .markdown-content h2, 
+.recorder-view-active .markdown-content h3 { color: var(--blue-900); font-weight: 700; margin-bottom: 0.85rem; margin-top: 1.5rem; }
+.recorder-view-active .markdown-content strong { color: var(--blue-800); font-weight: 600; }
+.recorder-view-active .markdown-content a { color: var(--blue-600); text-decoration: underline; font-weight: 500; }
+.recorder-view-active .markdown-content a:hover { color: var(--blue-700); }
+
+.salesperson-view-active .markdown-content h1, 
+.salesperson-view-active .markdown-content h2, 
+.salesperson-view-active .markdown-content h3 { color: var(--purple-900); font-weight: 700; margin-bottom: 0.85rem; margin-top: 1.5rem; }
+.salesperson-view-active .markdown-content strong { color: var(--purple-800); font-weight: 600; }
+.salesperson-view-active .markdown-content a { color: var(--purple-600); text-decoration: underline; font-weight: 500; }
+.salesperson-view-active .markdown-content a:hover { color: var(--purple-700); }
+
+
+/* Tab styling (common structure) */
+.analysis-tab {
+    padding: 0.85rem 1.25rem; font-weight: 500; color: #6b7280; 
+    border-bottom-width: 3px; border-color: transparent;
+    transition: all 0.25s ease-in-out; margin-right: 0.5rem;
+    cursor: pointer;
+}
+/* Theme-specific tab active/hover states */
+.client-view-active .analysis-tab:hover { color: var(--green-700); border-color: var(--green-400); }
+.client-view-active .analysis-tab.active { color: var(--green-800); border-color: var(--green-600); font-weight: 700; }
+.recorder-view-active .analysis-tab:hover { color: var(--blue-700); border-color: var(--blue-400); }
+.recorder-view-active .analysis-tab.active { color: var(--blue-800); border-color: var(--blue-600); font-weight: 700; }
+.salesperson-view-active .analysis-tab:hover { color: var(--purple-700); border-color: var(--purple-400); }
+.salesperson-view-active .analysis-tab.active { color: var(--purple-800); border-color: var(--purple-600); font-weight: 700; }
+
+/* Input & Select styling (common) */
+.custom-input, .custom-select {
+    background-color: rgba(255, 255, 255, 0.9); border: 1px solid #cbd5e1; /* slate-300 */
+    transition: all 0.25s ease-in-out; padding: 0.85rem; font-size: 0.95rem;
+    border-radius: 0.75rem; /* rounded-xl */
+    width: 100%; /* Ensure inputs take full width by default */
+}
+.custom-input:focus, .custom-select:focus {
+    outline: 2px solid transparent; outline-offset: 2px;
+}
+/* Theme-specific input focus */
+.client-view-active .custom-input:focus, .client-view-active .custom-select:focus { border-color: var(--green-500); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25); }
+.recorder-view-active .custom-input:focus, .recorder-view-active .custom-select:focus { border-color: var(--blue-500); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
+.salesperson-view-active .custom-input:focus, .salesperson-view-active .custom-select:focus { border-color: var(--purple-500); box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.25); }
+
+.custom-textarea { min-height: 80px; }
+
+/* Button styles (theme specific) */
+.btn-primary-green { background-image: linear-gradient(to right, var(--green-500) 0%, var(--green-600) 50%, var(--green-500) 100%); box-shadow: 0 10px 20px -5px rgba(22, 101, 52, 0.3); }
+.btn-primary-blue { background-image: linear-gradient(to right, var(--blue-500) 0%, var(--blue-600) 50%, var(--blue-500) 100%); box-shadow: 0 10px 20px -5px rgba(29, 78, 216, 0.3); }
+.btn-primary-purple { background-image: linear-gradient(to right, var(--purple-500) 0%, var(--purple-600) 50%, var(--purple-500) 100%); box-shadow: 0 10px 20px -5px rgba(91, 33, 182, 0.3); }
+
+.btn-primary-green, .btn-primary-blue, .btn-primary-purple {
+    background-size: 250% auto; color: white; font-weight: 600;
+    padding: 0.85rem 1.5rem; border-radius: 0.75rem;
+    display: inline-flex; /* For icon alignment */
+    align-items: center;
+    justify-content: center;
+}
+.btn-primary-green:hover, .btn-primary-blue:hover, .btn-primary-purple:hover { background-position: right center; }
+
+/* Secondary Outline Buttons (Theme Specific) */
+.btn-secondary-outline-purple { border-color: var(--purple-500); color: var(--purple-600); }
+.btn-secondary-outline-purple:hover { background-color: rgba(147, 51, 234, 0.05); }
+/* Add .btn-secondary-outline-green and .btn-secondary-outline-blue if needed */
+
+.btn-secondary-outline { /* Generic structure for outline buttons */
+    background-color: transparent;
+    border-width: 2px;
+    font-weight: 600;
+    padding: calc(0.85rem - 2px) calc(1.5rem - 2px); /* Adjust padding for border */
+    border-radius: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+
+.btn-danger { background-image: linear-gradient(to right, var(--red-500) 0%, var(--red-600) 50%, var(--red-500) 100%); background-size: 250% auto; color: white; font-weight: 600; padding: 0.75rem 1.25rem; border-radius: 0.65rem; box-shadow: 0 10px 20px -5px rgba(220, 38, 38, 0.3); display: inline-flex; align-items: center; justify-content: center;}
+.btn-danger:hover { background-position: right center; }
+.btn-warning { background-image: linear-gradient(to right, var(--yellow-500) 0%, var(--yellow-600) 50%, var(--yellow-500) 100%); background-size: 250% auto; color: white; font-weight: 600; padding: 0.75rem 1.25rem; border-radius: 0.65rem; box-shadow: 0 10px 20px -5px rgba(202, 138, 4, 0.3); display: inline-flex; align-items: center; justify-content: center;}
+.btn-warning:hover { background-position: right center; }
+.btn-success { background-image: linear-gradient(to right, var(--green-500) 0%, var(--green-600) 50%, var(--green-500) 100%); background-size: 250% auto; color: white; font-weight: 600; padding: 0.75rem 1.25rem; border-radius: 0.65rem; box-shadow: 0 10px 20px -5px rgba(22, 101, 52, 0.3); display: inline-flex; align-items: center; justify-content: center;}
+.btn-success:hover { background-position: right center; }
+
+.btn-header {
+    background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
+    color: white; padding: 0.6rem 1.1rem; border-radius: 0.65rem;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.btn-header:hover { background-color: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); }
+
+.analysis-content-bg {
+    background-color: rgba(255, 255, 255, 0.6); padding: 1.5rem;
+    border-radius: 0.75rem; box-shadow: inset 0 2px 4px rgba(0,0,0,0.04);
+}
+
+.meeting-item-card {
+    background-color: rgba(255,255,255,0.75);
+    border-radius: 0.75rem; padding: 1.25rem 1.5rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    border: 1px solid rgba(0,0,0,0.08);
+    transition: all 0.25s ease-in-out;
+    cursor: pointer;
+}
+.client-view-active .meeting-item-card:hover { transform: translateY(-4px); box-shadow: 0 8px 16px rgba(22, 101, 52, 0.12); border-color: var(--green-300); }
+.recorder-view-active .meeting-item-card:hover { transform: translateY(-4px); box-shadow: 0 8px 16px rgba(30, 64, 175, 0.12); border-color: var(--blue-300); }
+.salesperson-view-active .meeting-item-card:hover { transform: translateY(-4px); box-shadow: 0 8px 16px rgba(88, 28, 135, 0.12); border-color: var(--purple-300); }
+
+.status-indicator { width: 0.75rem; height: 0.75rem; border-radius: 50%; }
+.status-recording { background-color: var(--red-500); animation: pulse-red 1.5s infinite; }
+.status-processing { background-color: var(--yellow-500); animation: pulse-yellow 1.5s infinite; }
+.status-completed { background-color: var(--green-500); }
+.status-scheduled { background-color: var(--purple-400); } /* For Salesperson view */
+.status-cancelled { background-color: #9ca3af; } /* gray-400 */
+
+
+@keyframes pulse-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } }
+@keyframes pulse-yellow { 0%, 100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.7); } 50% { box-shadow: 0 0 0 8px rgba(234, 179, 8, 0); } }
+
+.animate-pulse-custom .h-4 { height: 1rem; }
+.animate-pulse-custom .mb-4 { margin-bottom: 1rem; }
+.animate-pulse-custom .w-3\/4 { width: 75%; }
+.animate-pulse-custom .w-full { width: 100%; }
+.animate-pulse-custom .w-5\/6 { width: 83.333333%; }
+.animate-pulse-custom .rounded { border-radius: 0.25rem; }
+.animate-pulse-custom .bg-gray-200 { background-color: #e5e7eb; }
+
+
+/* Custom scrollbar for question history etc. */
+.custom-scrollbar::-webkit-scrollbar { width: 8px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.3); }
+
+/* Helper for hidden elements in JS logic */
+.hidden {
+    display: none !important;
+}
+
+/* Ensure main content areas take up space */
+main.flex-grow {
+    flex-grow: 1;
+}
+
+/* Specific styles for button loaders */
+.button-loader {
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Ensure view sections are block by default for JS toggling */
+.view-section {
+    display: block; /* Default, JS will add 'hidden' */
+}
