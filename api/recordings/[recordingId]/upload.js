@@ -1,27 +1,13 @@
 // File: /api/recordings/[recordingId]/upload.js
 // Handles POST /api/recordings/:recordingId/upload
+// Vercel function acts as a proxy to AWS API Gateway for this endpoint.
 
-// --- Dependencies ---
-// const AWS = require('aws-sdk');
-// const formidable = require('formidable-serverless'); // Or other multipart form parser like 'multer'
-// const fs = require('fs'); // Needed if formidable writes temp files
-// const { authenticateToken } = require('../../../../utils/auth'); // Adjust path based on your utils folder
+// const fetch = require('node-fetch'); // If using node-fetch for Vercel Node runtime, or built-in fetch
+// const { authenticateToken } = require('../../../../utils/auth'); // Adjust path
 
-// --- AWS SDK Configuration ---
-// AWS.config.update({
-//   accessKeyId: process.env.MY_AWS_ACCESS_KEY_ID,
-//   secretAccessKey: process.env.MY_AWS_SECRET_ACCESS_KEY,
-//   region: process.env.MY_AWS_REGION
-// });
-// const s3 = new AWS.S3();
-// const lambda = new AWS.Lambda();
-// const dynamoDb = new AWS.DynamoDB.DocumentClient();
-// const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME; // Table for recording session & analysis
-// const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME; // To update original meeting status/link
-// const S3_AUDIO_UPLOAD_BUCKET = process.env.S3_AUDIO_UPLOAD_BUCKET;
-// const ANALYSIS_LAMBDA_ARN = process.env.ANALYSIS_LAMBDA_ARN;
+// const API_GATEWAY_UPLOAD_ENDPOINT = process.env.API_GATEWAY_UPLOAD_ENDPOINT;
 
-// Vercel config for file uploads
+// Vercel config for file uploads (if not using a library that handles it well)
 // export const config = {
 //   api: {
 //     bodyParser: false, 
@@ -34,14 +20,14 @@ export default async function handler(req, res) {
         return res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
     }
 
-    const { recordingId } = req.query; // This is the ID from the URL path (e.g., meeting.recordingId or ad-hoc generated ID)
+    const { recordingId } = req.query; 
 
     // --- PRODUCTION: Authentication ---
     // const authResult = authenticateToken(req);
     // if (!authResult.authenticated) {
     //     return res.status(401).json({ success: false, message: "Unauthorized" });
     // }
-    // const userId = authResult.user.userId; // User who is initiating the recording/upload
+    // const userId = authResult.user.userId;
     // ---
 
     // --- SIMULATED AUTH ---
@@ -52,105 +38,63 @@ export default async function handler(req, res) {
         return res.status(400).json({ success: false, message: "Recording ID is required in the path." });
     }
 
-    // --- PRODUCTION: File Parsing and S3 Upload ---
-    /*
-    const form = formidable(); 
-    form.parse(req, async (err, fields, files) => {
-        if (err) {
-            console.error('Error parsing form data:', err);
-            return res.status(500).json({ success: false, message: 'Error processing file upload.', errorDetails: err.message });
-        }
+    try {
+        // This Vercel function will now proxy the request to your AWS API Gateway.
+        // The frontend sends FormData, so this function needs to forward it.
+        // Handling multipart/form-data proxying in Vercel serverless functions can be tricky.
+        // Simplest for Vercel might be to stream the req body if API Gateway can handle it,
+        // or use a library that correctly reconstructs and forwards the multipart request.
 
-        const audioFile = files.audioFile; // Name used in frontend FormData
-        const notes = fields.notes || '';
-        const quality = fields.quality || 'medium';
-        const originalMeetingId = fields.originalMeetingId; // Salesperson's meeting.id, if this recording is linked
+        // --- PRODUCTION: Proxy to AWS API Gateway ---
+        /*
+        const apiGatewayUrl = `${API_GATEWAY_UPLOAD_ENDPOINT}/${recordingId}/process`; // Example API Gateway path
 
-        if (!audioFile) {
-            return res.status(400).json({ success: false, message: 'No audio file provided.' });
-        }
+        // Forwarding FormData is complex. A common approach is to use a library like 'request' or 'axios'
+        // that can handle streaming the multipart form body.
+        // Or, if API Gateway can accept base64 encoded file + metadata in JSON:
+        // 1. Parse multipart form data here (using formidable-serverless or multer)
+        // 2. Read file into buffer, base64 encode it.
+        // 3. Construct JSON payload for API Gateway.
+        // 4. Send JSON payload to API Gateway.
 
-        const timestamp = Date.now();
-        const s3Key = `audio_uploads/${userId}/${recordingId}/${timestamp}-${audioFile.name || 'recording.webm'}`;
-
-        try {
-            // 1. Upload to S3
-            const s3UploadParams = {
-                Bucket: S3_AUDIO_UPLOAD_BUCKET,
-                Key: s3Key,
-                Body: fs.createReadStream(audioFile.path), 
-                ContentType: audioFile.type || 'audio/webm',
-            };
-            const s3UploadResult = await s3.upload(s3UploadParams).promise();
-            const s3Path = s3UploadResult.Location;
-
-            // 2. Create/Update recording session metadata in DynamoDB (RECORDINGS_ANALYSIS_TABLE_NAME)
-            const recordingItem = {
-                recordingId: recordingId, // Use the ID from the path as the primary key
-                originalMeetingId: originalMeetingId || null, 
-                uploaderUserId: userId, 
-                s3AudioPath: s3Path,
-                audioFileName: audioFile.name || 'recording.webm',
-                notes,
-                quality,
-                status: 'processing', 
-                uploadTimestamp: new Date().toISOString(),
-                // duration, fileSize would be updated by analysis lambda or here if easily calculable
-            };
-            // Use put, which creates or replaces the item.
-            await dynamoDb.put({ TableName: RECORDINGS_ANALYSIS_TABLE_NAME, Item: recordingItem }).promise();
-
-            // 3. Optionally, update the original meeting (MEETINGS_TABLE_NAME) if this recording is linked
-            if (originalMeetingId) {
-                await dynamoDb.update({
-                    TableName: MEETINGS_TABLE_NAME,
-                    Key: { id: originalMeetingId }, // Salesperson's meeting ID
-                    UpdateExpression: "set #s = :newStatus, #rid_link = :ridVal", // #rid_link is the field storing the recordingId
-                    ExpressionAttributeNames: {"#s": "status", "#rid_link": "recordingId"}, // Assuming 'recordingId' field in Meetings table
-                    ExpressionAttributeValues: {":newStatus": "Processing", ":ridVal": recordingId}
-                }).promise();
+        // Example using node-fetch to proxy (simplified, might need adjustments for FormData):
+        const responseFromApiGw = await fetch(apiGatewayUrl, {
+            method: 'POST',
+            body: req, // Attempt to stream the request body; Vercel might need specific handling for this.
+                       // Or construct FormData again if `req` is not directly streamable this way.
+            headers: {
+                // Forward relevant headers, including Content-Type (which will be multipart/form-data)
+                'Content-Type': req.headers['content-type'],
+                // Add any necessary API Gateway API Key if configured
+                'x-api-key': process.env.API_GATEWAY_KEY, 
+                // Forward user context if needed by the API Gateway/Lambda
+                'X-User-Id': userId,
+                'X-Original-Meeting-Id': req.headers['x-original-meeting-id'] || null // Assuming frontend sends this if applicable
             }
+        });
 
-            // 4. Trigger AWS Lambda for Analysis (asynchronous invocation)
-            const lambdaPayload = {
-                s3Bucket: S3_AUDIO_UPLOAD_BUCKET,
-                s3Key: s3Key,
-                recordingId: recordingId, 
-                meetingContext: { notes, title: fields.title || 'Untitled Recording' } 
-            };
-            await lambda.invoke({
-                FunctionName: ANALYSIS_LAMBDA_ARN,
-                InvocationType: 'Event', 
-                Payload: JSON.stringify(lambdaPayload)
-            }).promise();
-
-            res.status(200).json({
-                success: true,
-                recordingId: recordingId, 
-                message: 'File uploaded successfully. Analysis has started.',
-                status: 'processing'
-            });
-
-        } catch (uploadError) {
-            console.error('Error during S3 upload or Lambda trigger:', uploadError);
-            res.status(500).json({ success: false, message: 'Failed to process recording.', errorDetails: uploadError.message });
-        } finally {
-            if (audioFile && audioFile.path) {
-                fs.unlink(audioFile.path, err => { if (err) console.error("Error deleting temp file:", err); });
-            }
+        if (!responseFromApiGw.ok) {
+            const errorData = await responseFromApiGw.json().catch(() => ({ message: `API Gateway error: ${responseFromApiGw.status}`}));
+            throw new Error(errorData.message);
         }
-    });
-    */
+        const result = await responseFromApiGw.json();
+        res.status(responseFromApiGw.status).json(result);
+        */
 
-    // --- SIMULATED UPLOAD & ANALYSIS TRIGGER ---
-    console.log(`POST /api/recordings/${recordingId}/upload for user ${userId}. Body (form-data) would contain audio.`);
-    // Assume file is received and "uploaded"
-    // Simulate updating DB and triggering Lambda
-    console.log(`Simulated: Audio uploaded to S3, analysis Lambda triggered for recordingId: ${recordingId}.`);
-    res.status(200).json({ 
-        success: true, 
-        recordingId: recordingId, 
-        message: 'File uploaded (simulated), analysis started.', 
-        status: 'processing' 
-    });
-    // --- END SIMULATED ---
+        // --- SIMULATED PROXY & ANALYSIS TRIGGER ---
+        console.log(`API: POST /api/recordings/${recordingId}/upload for user ${userId}.`);
+        console.log(`Simulated: Request proxied to AWS API Gateway. AWS Lambda will handle S3 upload & analysis trigger for ${recordingId}.`);
+        // The response from API Gateway would indicate that processing has started.
+        res.status(202).json({ // 202 Accepted is often used for async processing
+            success: true, 
+            recordingId: recordingId, 
+            message: 'Audio submitted for processing via API Gateway (simulated).', 
+            status: 'processing_initiated' 
+        });
+        // --- END SIMULATED ---
+
+    } catch (error) {
+        console.error(`API Error uploading recording ${recordingId}:`, error);
+        res.status(500).json({ success: false, message: 'Failed to submit recording for processing.', errorDetails: error.message });
+    }
+}

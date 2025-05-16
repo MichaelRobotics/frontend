@@ -7,7 +7,26 @@
 // Configure AWS SDK
 // AWS.config.update({ /* ... */ });
 // const dynamoDb = new AWS.DynamoDB.DocumentClient();
-// const RECORDINGS_TABLE_NAME = process.env.RECORDINGS_TABLE_NAME; // Or a dedicated Analysis Table
+// const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
+
+// Placeholder for your actual authentication and role determination logic
+async function authenticateTokenOrClientAccess(req, recordingId) {
+    // In a real app, this would:
+    // 1. Check for JWT in Authorization header. If valid, extract user role.
+    // 2. If no JWT or for client access, check for a client session/temp token related to recordingId.
+    // 3. Verify if the role has permission to access this recordingId.
+    // For simulation:
+    const userToken = req.headers.authorization;
+    if (userToken && userToken.includes("salesperson")) return { granted: true, role: "salesperson" };
+    if (userToken && userToken.includes("recorder")) return { granted: true, role: "recorder" };
+    // Simulate client access if a specific query param is present for testing
+    if (req.query.clientAccess === "true") return { granted: true, role: "client" };
+    
+    // Default to salesperson for broader testing if no specific client indication
+    return { granted: true, role: req.headers['x-simulated-role'] || "salesperson" };
+    // return { granted: false, message: "Access Denied", status: 401 };
+}
+
 
 export default async function handler(req, res) {
     if (req.method !== 'GET') {
@@ -17,21 +36,11 @@ export default async function handler(req, res) {
 
     const { recordingId } = req.query;
 
-    // --- PRODUCTION: Authentication & Authorization ---
-    // This endpoint can be accessed by Salesperson, Recorder (authenticated users)
-    // or by a Client (who might have a temporary validated session/token after /api/client/validate-access).
-    // Your `authenticateTokenOrClientAccess` utility would handle this.
-    // const authResult = await authenticateTokenOrClientAccess(req, recordingId);
-    // if (!authResult.granted) {
-    //     return res.status(authResult.status || 401).json({ success: false, message: authResult.message || "Access Denied" });
-    // }
-    // const role = authResult.role; // 'salesperson', 'recorder', 'client'
-    // ---
-
-    // --- SIMULATED AUTH/ROLE ---
-    // For simulation, let's assume role can be passed as a query param or default
-    const role = req.query.simulatedRole || 'salesperson'; // 'salesperson', 'recorder', 'client'
-    // ---
+    const authResult = await authenticateTokenOrClientAccess(req, recordingId);
+    if (!authResult.granted) {
+        return res.status(authResult.status || 401).json({ success: false, message: authResult.message || "Access Denied" });
+    }
+    const role = authResult.role;
 
     if (!recordingId) {
         return res.status(400).json({ success: false, message: "Recording ID is required." });
@@ -41,69 +50,81 @@ export default async function handler(req, res) {
         // --- PRODUCTION: Fetch the full analysisData from DynamoDB ---
         /*
         const params = {
-            TableName: RECORDINGS_TABLE_NAME,
-            Key: { id: recordingId },
+            TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
+            Key: { recordingId: recordingId }, // Assuming 'recordingId' is the primary key
         };
         const { Item: recording } = await dynamoDb.get(params).promise();
 
-        if (!recording || recording.status !== 'completed' || !recording.analysisData) {
-            return res.status(404).json({ success: false, message: 'Analysis not found or not completed for this recording.' });
+        if (!recording || recording.analysisStatus !== 'completed' || !recording.analysisData) {
+            return res.status(404).json({ success: false, message: 'Completed analysis not found for this recording.' });
         }
         
-        // Now, shape the data based on the role
+        // Shape the data based on the role
         let responseData = {};
+        const fullAnalysis = recording.analysisData;
         if (role === 'salesperson') {
-            responseData = recording.analysisData; // Full data
+            responseData = fullAnalysis; // Salesperson gets everything
         } else if (role === 'recorder') {
-            responseData = {
-                summary: recording.analysisData.summary,
-                transcript: recording.analysisData.transcript,
+            responseData = { // Recorder gets summary and transcript
+                summary: fullAnalysis.summary,
+                transcript: fullAnalysis.transcript,
             };
         } else if (role === 'client') {
-            responseData = {
-                summary: recording.analysisData.summary,
-                keyPoints: recording.analysisData.keyPoints,
-                actionItems: recording.analysisData.actionItems,
-                questions: recording.analysisData.questions,
-                // Potentially exclude sentiment or other internal fields for client
+            responseData = { // Client gets their specific subset
+                summary: fullAnalysis.clientAnalysis ? fullAnalysis.clientAnalysis.tailoredSummary : fullAnalysis.generalSummary,
+                keyPoints: fullAnalysis.clientAnalysis ? fullAnalysis.clientAnalysis.keyDecisionsAndCommitments : fullAnalysis.salespersonAnalysis.keyPoints, // Example fallback
+                actionItems: fullAnalysis.clientAnalysis ? fullAnalysis.clientAnalysis.actionItemsRelevantToClient : fullAnalysis.salespersonAnalysis.actionItems,
+                questions: fullAnalysis.clientAnalysis ? fullAnalysis.clientAnalysis.questionsAnsweredForClient : fullAnalysis.salespersonAnalysis.identifiedClientQuestions,
             };
-        } else { // Default or unknown role
-            responseData = { summary: recording.analysisData.summary };
+        } else { 
+            responseData = { summary: fullAnalysis.generalSummary || fullAnalysis.summary }; // Default limited view
         }
         res.status(200).json(responseData);
         */
 
         // --- SIMULATED ANALYSIS DATA (Role-Aware) ---
-        console.log(`GET /api/recordings/${recordingId}/analysis for role: ${role}`);
+        console.log(`API: GET /api/recordings/${recordingId}/analysis for role: ${role}`);
         const fullMockAnalysis = {
-            summary: `<p>Full simulated summary for recording ${recordingId}. It covers all aspects discussed.</p>`,
             transcript: `[00:00:00] Full Transcript Start for ${recordingId}...\n[00:01:00] ...discussion point...\n[00:05:00] End of transcript.`,
-            keyPoints: `<ul><li>Full Key Point 1 for ${recordingId}.</li><li>Full Key Point 2.</li><li>Full Key Point 3.</li></ul>`,
-            actionItems: `<ol><li>Full Action Item 1 (Assignee: Team A).</li><li>Full Action Item 2 (Assignee: John).</li></ol>`,
-            questions: `<ul><li>Full Question 1 from meeting?</li><li>Full Question 2 about timeline?</li></ul>`,
-            sentiment: `<p>Overall Sentiment: <strong>Positive (80%)</strong>. Detailed sentiment breakdown available.</p>`
+            generalSummary: `General summary for ${recordingId}. Agent 1 processed this.`,
+            salespersonAnalysis: {
+                tailoredSummary: `Sales-focused summary for ${recordingId}: identifies key buying signals, objections raised.`,
+                keyPoints: [`Sales Key Point 1 for ${recordingId}.`, `Sales Key Point 2.`],
+                actionItems: [{task: `Follow up with client from ${recordingId}`, assignee: "Sales"}],
+                identifiedClientQuestions: [`Client question 1 from ${recordingId}?`],
+                sentimentAnalysis: { overall: "Positive (80%)", trendOverTime: [], keywords: [] },
+                topicsDetected: ["Topic A", "Topic B"],
+                queryAgentIdentifier: `sales_agent_for_${recordingId}`
+            },
+            clientAnalysis: {
+                tailoredSummary: `Client-facing summary for ${recordingId}: Key decisions and your action items.`,
+                keyDecisionsAndCommitments: [`Decision X was made for ${recordingId}.`],
+                actionItemsRelevantToClient: [{task: `Client to review document for ${recordingId}.`}],
+                questionsAnsweredForClient: [{question: `Was Y discussed in ${recordingId}?`, summaryOfAnswer: "Yes, Y was clarified."}],
+                queryAgentIdentifier: `client_agent_for_${recordingId}`
+            }
         };
 
         let responseData = {};
         if (role === 'salesperson') {
-            responseData = fullMockAnalysis;
+            responseData = fullMockAnalysis; // Salesperson gets everything including general and their specific
         } else if (role === 'recorder') {
             responseData = {
-                summary: fullMockAnalysis.summary,
+                summary: fullMockAnalysis.generalSummary,
                 transcript: fullMockAnalysis.transcript,
             };
         } else if (role === 'client') {
-            responseData = { // Client gets a specific subset
-                summary: `Client-facing summary for ${recordingId}: ${fullMockAnalysis.summary.substring(0,100)}...`,
-                keyPoints: fullMockAnalysis.keyPoints,
-                actionItems: fullMockAnalysis.actionItems,
-                questions: fullMockAnalysis.questions,
+            responseData = { 
+                summary: fullMockAnalysis.clientAnalysis.tailoredSummary,
+                keyPoints: fullMockAnalysis.clientAnalysis.keyDecisionsAndCommitments,
+                actionItems: fullMockAnalysis.clientAnalysis.actionItemsRelevantToClient,
+                questions: fullMockAnalysis.clientAnalysis.questionsAnsweredForClient,
             };
-        } else {
-            responseData = { summary: "Limited analysis view." };
+        } else { // Default if role is unknown or not catered for with specific shaping
+            responseData = { summary: fullMockAnalysis.generalSummary };
         }
         
-        if (recordingId) { // Basic check
+        if (recordingId) { 
              res.status(200).json(responseData);
         } else {
             res.status(404).json({ success: false, message: "Analysis not found (simulated)." });
@@ -111,7 +132,7 @@ export default async function handler(req, res) {
         // --- END SIMULATED ANALYSIS DATA ---
 
     } catch (error) {
-        console.error(`Error fetching analysis for recording ${recordingId}:`, error);
+        console.error(`API Error fetching analysis for recording ${recordingId}:`, error);
         res.status(500).json({ success: false, message: `Failed to fetch analysis.`, errorDetails: error.message });
     }
 }
