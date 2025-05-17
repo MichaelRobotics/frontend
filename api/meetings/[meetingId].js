@@ -3,10 +3,10 @@
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { authenticateToken } from '/var/task/api/utils/auth.js'; // Ensure this path is correct from /api/meetings/
+import { authenticateToken } from '../utils/auth.js'; // Ensure this path is correct from /api/meetings/
 
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
-const REGION = process.env.MY_AWS_REGION;
+const REGION = process.env.AWS_REGION;
 
 // Environment variable check at module load time
 if (!MEETINGS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) { // JWT_SECRET is used by authenticateToken

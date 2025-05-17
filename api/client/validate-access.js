@@ -7,7 +7,7 @@ import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME; 
 const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
-const REGION = process.env.MY_AWS_REGION;
+const REGION = process.env.AWS_REGION;
 
 if (!MEETINGS_TABLE_NAME || !RECORDINGS_ANALYSIS_TABLE_NAME || !REGION) {
     console.error("FATAL_ERROR: Missing critical environment variables for client access API.");

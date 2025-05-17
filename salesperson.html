@@ -35,25 +35,30 @@
             SharedAppLogic.initGlobalNotifications();
             
             // Check authentication status using SharedAppLogic
-            if (!SharedAppLogic.isAuthenticated()) { 
-                SharedAppLogic.showGlobalNotification('Access denied. Please sign in.', 'error', 3000);
-                // Redirect to landing page after a delay
-                setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
-                return; 
+            let user = SharedAppLogic.getCurrentUser();
+            if (!user || !SharedAppLogic.isAuthenticated()) {
+                if (localStorage.getItem('authToken')) {
+                    console.log("Salesperson Page: Auth token found, attempting to verify session...");
+                    user = await SharedAppLogic.checkSessionAPI();
+                }
+            } else if (SharedAppLogic.isAuthenticated()) {
+                console.log("Salesperson Page: Existing session found, re-verifying...");
+                user = await SharedAppLogic.checkSessionAPI();
             }
-            // Optional: Further verify session with backend
-            // try {
-            //     const user = await SharedAppLogic.checkSessionAPI();
-            //     if (!user) {
-            //         // checkSessionAPI handles redirect if token is invalid
-            //         return;
-            //     }
-            //     console.log("Session verified for user:", user.email);
-            // } catch (error) {
-            //     // checkSessionAPI handles redirect if token is invalid
-            //     return;
-            // }
 
+            if (!user || !SharedAppLogic.isAuthenticated()) {
+                SharedAppLogic.showGlobalNotification('Access denied. Please sign in.', 'error', 3000);
+                setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
+                return;
+            }
+
+            // Role check for salesperson page
+            if (user.role !== 'salesperson' && user.role !== 'admin') {
+                SharedAppLogic.showGlobalNotification('Access denied: Insufficient privileges for Salesperson Dashboard.', 'error', 4000);
+                setTimeout(() => { window.location.href = 'app-main-dashboard.html'; }, 4000);
+                return;
+            }
+            console.log("Salesperson Page: Session verified for user:", user.email, "Role:", user.role);
 
             const viewContainer = document.getElementById('salesperson-view-container');
             if (viewContainer && typeof SalespersonView !== 'undefined' && typeof SharedAppLogic !== 'undefined') {
