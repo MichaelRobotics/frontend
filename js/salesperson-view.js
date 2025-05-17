@@ -265,10 +265,13 @@
                 noMeetingsMessage.classList.remove('hidden'); // Show fetching message
             }
             const response = await fetchMeetingsAPI();
+            console.log('Meetings API Response:', response); // Debug log
             if (!response || !response.success || !response.data) {
+                console.error('Invalid API Response:', { response }); // Debug log
                 throw new Error('Invalid response from server');
             }
             meetings = response.data;
+            console.log('Processed meetings:', meetings); // Debug log
             renderSalesMeetingList(); // This will hide noMeetingsMessage if meetings are found
         } catch (error) {
             console.error('Error fetching meetings:', error);
