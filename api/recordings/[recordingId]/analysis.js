@@ -2,7 +2,7 @@
 // Handles GET /api/recordings/:recordingId/analysis
 // This Vercel function interacts directly with DynamoDB and shapes data by role.
 
-import { authenticateTokenOrClientAccess } from '../../../../utils/auth.js'; // Adjust path
+import { authenticateTokenOrClientAccess } from '/api/utils/auth.js'; // Adjust path
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 

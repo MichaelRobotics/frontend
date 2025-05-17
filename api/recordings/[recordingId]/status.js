@@ -2,7 +2,7 @@
 // Handles GET /api/recordings/:recordingId/analysis/status
 // This Vercel function interacts directly with DynamoDB.
 
-import { authenticateToken } from '../../../utils/auth.js'; // Adjust path
+import { authenticateToken } from '/api/utils/auth.js'; // Adjust path
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 

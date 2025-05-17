@@ -2,7 +2,7 @@
 // Handles GET /api/recordings/:recordingId/analysis/pdf
 // Vercel function fetches data from DynamoDB, then proxies to AWS API Gateway for PDF Lambda.
 
-import { authenticateTokenOrClientAccess } from '../../../../utils/auth.js'; // Adjust path
+import { authenticateTokenOrClientAccess } from '/api/utils/auth.js'; // Adjust path
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 // import fetch from 'node-fetch';
