@@ -3,7 +3,7 @@
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { authenticateToken } from '../../../utils/auth'; // Adjust path
+import { authenticateToken } from '../../../utils/auth.js'; // Adjust path
 
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
 // If cascading deletes involve other tables:
