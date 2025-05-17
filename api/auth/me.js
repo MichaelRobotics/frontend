@@ -50,7 +50,7 @@ export default async function handler(req, res) {
             details: "Missing required environment variables"
         });
     }
-
+    
     if (!docClient) {
         console.error("DynamoDB client not initialized");
         return res.status(500).json({ 
@@ -87,7 +87,7 @@ export default async function handler(req, res) {
             Key: { 
                 email: emailFromToken // Changed from userId to email
             },
-            ProjectionExpression: "userId, email, #usrName, #usrRole",
+            ProjectionExpression: "userId, email, #usrName, #usrRole", 
             ExpressionAttributeNames: { 
                 "#usrName": "name",
                 "#usrRole": "role"
@@ -110,9 +110,9 @@ export default async function handler(req, res) {
             success: true,
             user: { 
                 id: dbUser.userId,
-                name: dbUser.name,
-                email: dbUser.email,
-                role: dbUser.role
+                name: dbUser.name, 
+                email: dbUser.email, 
+                role: dbUser.role 
             }
         });
 

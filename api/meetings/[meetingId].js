@@ -79,15 +79,26 @@ export default async function handler(req, res) {
         try {
             const { meeting, error, status, message } = await getMeetingAndVerifyOwnership(meetingId, userId);
             if (error) {
-                return res.status(status).json({ success: false, message });
+                return res.status(status).json({ 
+                    success: false, 
+                    message 
+                });
             }
             
             console.log(`API: Fetched meeting ${meetingId} for user ${userId}`);
-            res.status(200).json({ success: true, message: 'Meeting fetched successfully', data: meeting });
+            res.status(200).json({ 
+                success: true, 
+                message: 'Meeting fetched successfully',
+                data: meeting 
+            });
 
         } catch (error) {
             console.error(`API Error fetching meeting ${meetingId}:`, error);
-            res.status(500).json({ success: false, message: `Failed to fetch meeting.`, errorDetails: error.message });
+            res.status(500).json({ 
+                success: false, 
+                message: `Failed to fetch meeting.`, 
+                errorDetails: error.message 
+            });
         }
     } else if (req.method === 'PUT') {
         try {
@@ -95,18 +106,30 @@ export default async function handler(req, res) {
             
             if (Object.keys(updates).length === 0 || 
                 (updates.title === undefined && updates.date === undefined && updates.clientEmail === undefined && updates.notes === undefined)) {
-                 return res.status(400).json({ success: false, message: 'No valid update data provided. At least one field (title, date, clientEmail, notes) is required.' });
+                 return res.status(400).json({ 
+                     success: false, 
+                     message: 'No valid update data provided. At least one field (title, date, clientEmail, notes) is required.' 
+                 });
             }
             if (updates.date && isNaN(new Date(updates.date).getTime())) {
-                 return res.status(400).json({ success: false, message: 'Invalid date format for update.' });
+                 return res.status(400).json({ 
+                     success: false, 
+                     message: 'Invalid date format for update.' 
+                 });
             }
             if (updates.clientEmail && !/\S+@\S+\.\S+/.test(updates.clientEmail)) {
-                return res.status(400).json({ success: false, message: 'Invalid client email format for update.' });
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Invalid client email format for update.' 
+                });
             }
 
             const { meeting: existingMeeting, error, status, message } = await getMeetingAndVerifyOwnership(meetingId, userId);
             if (error) {
-                return res.status(status).json({ success: false, message });
+                return res.status(status).json({ 
+                    success: false, 
+                    message 
+                });
             }
 
             // Construct DynamoDB UpdateExpression dynamically
@@ -150,17 +173,28 @@ export default async function handler(req, res) {
 
             const { Attributes: updatedMeeting } = await docClient.send(new UpdateCommand(updateParams));
             console.log(`API: Meeting ${meetingId} updated for user ${userId}`);
-            res.status(200).json({ success: true, message: 'Meeting updated successfully', data: updatedMeeting });
+            res.status(200).json({ 
+                success: true, 
+                message: 'Meeting updated successfully',
+                data: updatedMeeting 
+            });
 
         } catch (error) {
             console.error(`API Error updating meeting ${meetingId}:`, error);
-            res.status(500).json({ success: false, message: `Failed to update meeting.`, errorDetails: error.message });
+            res.status(500).json({ 
+                success: false, 
+                message: `Failed to update meeting.`, 
+                errorDetails: error.message 
+            });
         }
     } else if (req.method === 'DELETE') {
         try {
             const { meeting, error, status, message } = await getMeetingAndVerifyOwnership(meetingId, userId);
             if (error) {
-                return res.status(status).json({ success: false, message });
+                return res.status(status).json({ 
+                    success: false, 
+                    message 
+                });
             }
 
             const deleteParams = {
@@ -181,14 +215,24 @@ export default async function handler(req, res) {
             // (e.g., triggered by a DynamoDB Stream on the MEETINGS_TABLE_NAME, or called by this function).
             console.log(`API: Meeting ${meetingId} deleted by user ${userId}. Associated recordingId: ${meeting.recordingId}. Manual or automated cleanup of related resources (S3 audio, analysis data) is required.`);
 
-            res.status(200).json({ success: true, message: `Meeting ${meetingId} deleted successfully.` });
+            res.status(200).json({ 
+                success: true, 
+                message: `Meeting ${meetingId} deleted successfully.` 
+            });
 
         } catch (error) {
             console.error(`API Error deleting meeting ${meetingId}:`, error);
-            res.status(500).json({ success: false, message: `Failed to delete meeting.`, errorDetails: error.message });
+            res.status(500).json({ 
+                success: false, 
+                message: `Failed to delete meeting.`, 
+                errorDetails: error.message 
+            });
         }
     } else {
         res.setHeader('Allow', ['GET', 'PUT', 'DELETE']);
-        res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
+        res.status(405).json({ 
+            success: false, 
+            message: `Method ${req.method} Not Allowed` 
+        });
     }
 }

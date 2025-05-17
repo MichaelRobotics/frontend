@@ -584,14 +584,14 @@
                     }
                     return;
                 }
-
+            
                 // Store the real JWT token and user data
                 currentUser = data.user;
                 isLoggedIn = true;
                 localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
                 localStorage.setItem('authToken', data.token);
                 
-                updateLoginStateUI();
+                updateLoginStateUI(); 
                 closeAuthModal();
                 showAppNotification(`Welcome back, ${currentUser.name}!`, 'success');
                 
@@ -655,22 +655,22 @@
 
                 // Store the real JWT token and user data
                 currentUser = data.user;
-                isLoggedIn = true;
-                localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
+            isLoggedIn = true;
+            localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
                 localStorage.setItem('authToken', data.token);
                 
-                updateLoginStateUI();
-                closeAuthModal();
-                showAppNotification(`Account created for ${currentUser.name}! Welcome!`, 'success');
-                
-                const pendingRole = localStorage.getItem('pendingRole');
-                if (pendingRole && (pendingRole === 'salesperson' || pendingRole === 'recorder')) {
-                    showAppNotification(`Redirecting to app dashboard...`, 'info', 2000);
-                    localStorage.removeItem('pendingRole');
-                    setTimeout(() => { window.location.href = 'app-main-dashboard.html'; }, 2000);
-                } else {
-                    if(roleSelectionArea) setTimeout(() => { roleSelectionArea.scrollIntoView({ behavior: 'smooth' }); }, 500);
-                }
+            updateLoginStateUI(); 
+            closeAuthModal();
+            showAppNotification(`Account created for ${currentUser.name}! Welcome!`, 'success');
+            
+            const pendingRole = localStorage.getItem('pendingRole');
+             if (pendingRole && (pendingRole === 'salesperson' || pendingRole === 'recorder')) {
+                showAppNotification(`Redirecting to app dashboard...`, 'info', 2000);
+                localStorage.removeItem('pendingRole');
+                setTimeout(() => { window.location.href = 'app-main-dashboard.html'; }, 2000);
+            } else {
+                if(roleSelectionArea) setTimeout(() => { roleSelectionArea.scrollIntoView({ behavior: 'smooth' }); }, 500);
+            }
             } catch (error) {
                 console.error('Registration error:', error);
                 if(authErrorModal) {
@@ -708,12 +708,12 @@
                 // Still clear local storage even if API call fails
                 currentUser = null;
                 isLoggedIn = false;
-                localStorage.removeItem(USER_STORAGE_KEY);
-                localStorage.removeItem('authToken');
-                localStorage.removeItem('pendingRole');
-                updateLoginStateUI();
-                showAppNotification('You have been signed out.', 'info');
-            }
+            localStorage.removeItem(USER_STORAGE_KEY);
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('pendingRole'); 
+            updateLoginStateUI(); 
+            showAppNotification('You have been signed out.', 'info');
+        }
         }
         async function handleClientAccessSubmit(meetingId, accessCode) {
             if (!meetingId || !accessCode) {
@@ -755,9 +755,9 @@
                 closeClientAccessModal();
                 
                 // Redirect to client view with the validated data
-                setTimeout(() => {
-                    window.location.href = `client.html?meetingId=${encodeURIComponent(meetingId)}&accessCode=${encodeURIComponent(accessCode)}`;
-                }, 1500);
+            setTimeout(() => {
+                window.location.href = `client.html?meetingId=${encodeURIComponent(meetingId)}&accessCode=${encodeURIComponent(accessCode)}`;
+            }, 1500);
             } catch (error) {
                 console.error('Client access error:', error);
                 if(clientAccessErrorModal) {

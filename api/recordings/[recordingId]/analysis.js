@@ -16,7 +16,7 @@ if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) {
 let docClient;
 try {
     if (REGION && RECORDINGS_ANALYSIS_TABLE_NAME) {
-        const ddbClient = new DynamoDBClient({ region: REGION });
+const ddbClient = new DynamoDBClient({ region: REGION });
         docClient = DynamoDBDocumentClient.from(ddbClient);
     } else {
         console.error("DynamoDB Document Client not initialized due to missing environment variables");

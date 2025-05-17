@@ -49,7 +49,7 @@
             if (!user || !SharedAppLogic.isAuthenticated()) {
                 SharedAppLogic.showGlobalNotification('Access denied. Please sign in.', 'error', 3000);
                 setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
-                return;
+                return; 
             }
 
             // Role check for salesperson page

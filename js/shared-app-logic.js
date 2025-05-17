@@ -132,7 +132,7 @@ const SharedAppLogic = (() => {
         } catch (error) {
             console.error('Logout error:', error);
             // Still clear local storage and redirect even if API call fails
-            clearAuthTokenAndUser();
+            clearAuthTokenAndUser(); 
             localStorage.removeItem('pendingRole');
             window.location.href = '/landing-page.html';
         }
@@ -168,9 +168,9 @@ const SharedAppLogic = (() => {
 
     function setAuthToken(token) {
         if (token) {
-            authToken = token;
-            localStorage.setItem('authToken', token);
-            console.log("[SharedAppLogic] setAuthToken: Token stored in localStorage and variable.");
+        authToken = token;
+        localStorage.setItem('authToken', token);
+        console.log("[SharedAppLogic] setAuthToken: Token stored in localStorage and variable.");
         } else {
             clearAuthTokenAndUser();
         }
@@ -219,7 +219,7 @@ const SharedAppLogic = (() => {
         const data = await makeApiRequest('/api/meetings', 'GET');
         meetingsDataCache = Array.isArray(data) ? data : []; 
         console.log("[SharedAppLogic] fetchMeetingsAPI: Meetings cache updated.", meetingsDataCache.length, "meetings fetched.");
-        return { success: true, message: 'Meetings fetched successfully', data: meetingsDataCache };
+        return meetingsDataCache;
     }
 
     async function createMeetingAPI(meetingDetails) { 
