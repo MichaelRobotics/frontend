@@ -216,14 +216,10 @@ const SharedAppLogic = (() => {
 
     // --- MEETINGS DATA ---
     async function fetchMeetingsAPI() {
-        const response = await makeApiRequest('/api/meetings', 'GET');
-        if (!response || !response.success || !response.data) {
-            console.error("[SharedAppLogic] fetchMeetingsAPI: Invalid response format:", response);
-            return [];
-        }
-        meetingsDataCache = response.data;
+        const data = await makeApiRequest('/api/meetings', 'GET');
+        meetingsDataCache = Array.isArray(data) ? data : []; 
         console.log("[SharedAppLogic] fetchMeetingsAPI: Meetings cache updated.", meetingsDataCache.length, "meetings fetched.");
-        return response;
+        return meetingsDataCache;
     }
 
     async function createMeetingAPI(meetingDetails) { 
