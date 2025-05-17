@@ -3,7 +3,7 @@
 // Vercel function fetches context from DynamoDB, proxies Q&A to role-specific AWS API Gateway -> Lambda,
 // and stores Q&A history within the main analysis object in DynamoDB.
 
-import { authenticateTokenOrClientAccess } from '/var/task/api/utils/auth.js'; // Adjust path
+import { authenticateTokenOrClientAccess } from '../../utils/auth.js'; // Adjust path
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 // import fetch from 'node-fetch'; // Or global fetch in Node 18+

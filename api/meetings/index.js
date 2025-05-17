@@ -5,7 +5,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuidv4 } from 'uuid';
-import { authenticateToken } from '/var/task/api/utils/auth.js'; // Corrected relative path
+import { authenticateToken } from '../utils/auth.js'; // Corrected relative path
 
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
 const REGION = process.env.MY_AWS_REGION;
