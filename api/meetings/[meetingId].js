@@ -8,15 +8,30 @@ import { authenticateToken } from '../utils/auth.js'; // Ensure this path is cor
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
 const REGION = process.env.AWS_REGION;
 
-// Environment variable check at module load time
-if (!MEETINGS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) { // JWT_SECRET is used by authenticateToken
-    console.error("FATAL_ERROR: Missing critical environment variables for /api/meetings/[meetingId].js. This function may not operate correctly.");
+// Validate all required environment variables
+const requiredEnvVars = {
+    MEETINGS_TABLE_NAME,
+    AWS_REGION: REGION,
+    JWT_SECRET: process.env.JWT_SECRET
+};
+
+const missingEnvVars = Object.entries(requiredEnvVars)
+    .filter(([_, value]) => !value)
+    .map(([key]) => key);
+
+if (missingEnvVars.length > 0) {
+    console.error("FATAL_ERROR: Missing critical environment variables for /api/meetings/[meetingId].js:", missingEnvVars.join(', '));
 }
 
 let docClient;
-if (REGION && MEETINGS_TABLE_NAME) { // Initialize DDB client only if region and table name are set
-    const ddbClient = new DynamoDBClient({ region: REGION });
-    docClient = DynamoDBDocumentClient.from(ddbClient);
+if (REGION && MEETINGS_TABLE_NAME) {
+    try {
+        const ddbClient = new DynamoDBClient({ region: REGION });
+        docClient = DynamoDBDocumentClient.from(ddbClient);
+        console.log(`DynamoDB client initialized successfully for region: ${REGION}`);
+    } catch (error) {
+        console.error("Failed to initialize DynamoDB client:", error);
+    }
 } else {
     console.error("DynamoDB Document Client not initialized in /api/meetings/[meetingId].js due to missing REGION or MEETINGS_TABLE_NAME.");
 }

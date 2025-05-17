@@ -5,24 +5,39 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuidv4 } from 'uuid';
-import { authenticateToken } from '../utils/auth.js'; // Corrected relative path
+import { authenticateToken } from '../utils/auth.js';
 
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
-const REGION = process.env.MY_AWS_REGION;
+const REGION = process.env.AWS_REGION;
 
-if (!MEETINGS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) {
-    console.error("FATAL_ERROR: Missing critical environment variables for meetings API.");
+// Validate all required environment variables
+const requiredEnvVars = {
+    MEETINGS_TABLE_NAME,
+    AWS_REGION: REGION,
+    JWT_SECRET: process.env.JWT_SECRET
+};
+
+const missingEnvVars = Object.entries(requiredEnvVars)
+    .filter(([_, value]) => !value)
+    .map(([key]) => key);
+
+if (missingEnvVars.length > 0) {
+    console.error("FATAL_ERROR: Missing critical environment variables for meetings API:", missingEnvVars.join(', '));
     // This function might still be invoked by Vercel, so subsequent checks are needed.
 }
 
 let docClient;
 if (REGION && MEETINGS_TABLE_NAME) {
-    const ddbClient = new DynamoDBClient({ region: REGION });
-    docClient = DynamoDBDocumentClient.from(ddbClient);
+    try {
+        const ddbClient = new DynamoDBClient({ region: REGION });
+        docClient = DynamoDBDocumentClient.from(ddbClient);
+        console.log(`DynamoDB client initialized successfully for region: ${REGION}`);
+    } catch (error) {
+        console.error("Failed to initialize DynamoDB client:", error);
+    }
 } else {
     console.error("DynamoDB Document Client not initialized in /api/meetings/index.js due to missing REGION or MEETINGS_TABLE_NAME.");
 }
-
 
 export default async function handler(req, res) {
     if (!docClient || !MEETINGS_TABLE_NAME) { 
