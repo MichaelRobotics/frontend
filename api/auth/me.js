@@ -3,7 +3,7 @@
 
 // Assuming your utility file is in /api/utils/auth.js
 // Adjust the path if your project structure is different.
-import { authenticateToken } from '/api/utils/auth.js'; 
+import { authenticateToken } from '/var/task/api/utils/auth.js'; 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 

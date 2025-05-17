@@ -3,7 +3,7 @@
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { authenticateToken } from '/api/utils/auth.js'; // Ensure this path is correct from /api/meetings/
+import { authenticateToken } from '/var/task/api/utils/auth.js'; // Ensure this path is correct from /api/meetings/
 
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
 const REGION = process.env.MY_AWS_REGION;

@@ -2,7 +2,7 @@
 // Handles POST /api/recordings/:recordingId/upload
 // Vercel function acts as a proxy to an AWS API Gateway endpoint for audio intake and processing.
 
-import { authenticateToken } from '/api/utils/auth.js'; // Adjust path if utils is elsewhere
+import { authenticateToken } from '/var/task/api/utils/auth.js'; // Adjust path if utils is elsewhere
 // For Node.js < 18, you might need 'node-fetch'. For Node 18+, global fetch is available.
 // import fetch from 'node-fetch'; 
 // If you were to parse multipart/form-data within this Vercel function before proxying:
