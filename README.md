@@ -103,3 +103,84 @@ To run this project locally:
 ## Notes
 
 This structure is intentionally clean, standard, and well-suited for Vercel deployment of a static site. If the project grows to require build tools (like for minifying JS/CSS or using a framework), the structure can be adapted accordingly.
+
+# Meeting Analysis System
+
+This project is an AI-powered meeting analysis system with distinct interfaces for Salespeople, Recorders, and Clients.
+
+## Project Structure
+
+-   **`/` (root):** Contains HTML pages for the frontend application.
+-   **`/css`:** Shared CSS files.
+-   **`/js`:** Shared and view-specific frontend JavaScript modules.
+-   **`/api`:** Vercel Serverless Functions for the backend API.
+    -   **`/api/utils`:** Shared utilities for backend functions.
+    -   **`/api/auth`:** Authentication related endpoints.
+    -   **`/api/meetings`:** Endpoints for managing meeting schedules.
+    -   **`/api/recordings`:** Endpoints for handling recordings and their analysis.
+    -   **`/api/client`:** Endpoint for client access validation.
+
+## Frontend
+
+Built with HTML, CSS (Tailwind CSS utility classes), and vanilla JavaScript. The application is structured as a multi-page application (MPA).
+
+## Backend
+
+Implemented as Vercel Serverless Functions (Node.js runtime). It interacts with AWS services:
+-   **DynamoDB:** For data storage (users, meetings, analysis data).
+-   **S3:** For storing audio recordings (handled by an AWS Lambda via API Gateway).
+-   **AWS Lambda & API Gateway:** For processing-intensive tasks like audio intake/S3 upload, AI analysis, Q&A with LLMs, and PDF generation. Vercel functions act as proxies to these API Gateway endpoints.
+
+## Deployment
+
+Deployed on Vercel. Environment variables must be configured for AWS credentials, database table names, API Gateway endpoint URLs, and JWT secrets.
+
+## Setup (Conceptual)
+
+1.  Clone the repository.
+2.  Set up AWS resources (DynamoDB tables, S3 bucket, Lambda functions, API Gateway endpoints).
+3.  Configure Vercel Environment Variables in the Vercel project settings.
+4.  Install backend dependencies: `npm install` or `yarn install` in the project root (if `package.json` is at the root and Vercel builds from there).
+5.  Deploy to Vercel: `vercel` or `vercel --prod`.
+
+## Key Environment Variables (To be set in Vercel)
+
+-   `MY_AWS_ACCESS_KEY_ID`
+-   `MY_AWS_SECRET_ACCESS_KEY`
+-   `MY_AWS_REGION`
+-   `JWT_SECRET`
+-   `USERS_TABLE_NAME`
+-   `MEETINGS_TABLE_NAME`
+-   `RECORDINGS_ANALYSIS_TABLE_NAME`
+-   `S3_AUDIO_UPLOAD_BUCKET` (Used by your Audio Intake Lambda)
+-   `API_GATEWAY_AUDIO_INTAKE_ENDPOINT`
+-   `SALES_QNA_API_GATEWAY_ENDPOINT`
+-   `CLIENT_QNA_API_GATEWAY_ENDPOINT`
+-   `PDF_API_GATEWAY_ENDPOINT`
+-   `API_GATEWAY_KEY` (Optional)
+
+{
+  "name": "meeting-analysis-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend API for Meeting Analysis System",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.577.0",
+    "@aws-sdk/lib-dynamodb": "^3.577.0",
+    "@aws-sdk/client-s3": "^3.577.0",  // If Vercel functions were to upload to S3 directly
+    "@aws-sdk/client-lambda": "^3.577.0", // If Vercel functions were to invoke Lambda directly
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^9.0.1",
+    "node-fetch": "^2.6.7", // For Node.js < 18 if making HTTP calls from Vercel to API Gateway
+    "formidable-serverless": "^1.1.1" // If Vercel func needs to parse multipart before proxying
+    // Or use "formidable" v3+ for modern Node.js
+  },
+  "engines": {
+    "node": ">=18.x" // Specify Node.js version for Vercel
+  }
+}

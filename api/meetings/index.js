@@ -5,24 +5,52 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuidv4 } from 'uuid';
-import { authenticateToken } from '../utils/auth.js'; // Adjust path
+import { authenticateToken } from '../utils/auth.js'; // Corrected path
 
+// --- Environment Variable Loading and Logging (for debugging) ---
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
 const REGION = process.env.MY_AWS_REGION;
+const JWT_SECRET_PRESENT = process.env.JWT_SECRET ? "SET" : "NOT SET"; // Check presence, not value
+const AWS_ACCESS_KEY_ID_PRESENT = process.env.MY_AWS_ACCESS_KEY_ID ? "SET" : "NOT SET";
+const AWS_SECRET_ACCESS_KEY_PRESENT = process.env.MY_AWS_SECRET_ACCESS_KEY ? "TRUNCATED..." : "NOT SET"; // Don't log the actual secret
 
-if (!MEETINGS_TABLE_NAME || !REGION) {
-    console.error("FATAL_ERROR: Missing critical environment variables for meetings API.");
+console.log("--- /api/meetings/index.js Environment Variables ---");
+console.log(`MEETINGS_TABLE_NAME: ${MEETINGS_TABLE_NAME || "NOT SET"}`);
+console.log(`MY_AWS_REGION: ${REGION || "NOT SET"}`);
+console.log(`JWT_SECRET_PRESENT: ${JWT_SECRET_PRESENT}`);
+console.log(`MY_AWS_ACCESS_KEY_ID_PRESENT: ${AWS_ACCESS_KEY_ID_PRESENT}`);
+console.log(`MY_AWS_SECRET_ACCESS_KEY_PRESENT: ${AWS_SECRET_ACCESS_KEY_PRESENT}`);
+console.log("----------------------------------------------------");
+
+if (!MEETINGS_TABLE_NAME || !REGION || !process.env.JWT_SECRET || !process.env.MY_AWS_ACCESS_KEY_ID || !process.env.MY_AWS_SECRET_ACCESS_KEY) {
+    console.error("FATAL_ERROR: Missing one or more critical environment variables for meetings API. Function may not initialize AWS SDK correctly.");
+    // Note: The function might still be invoked by Vercel, so subsequent checks are needed.
 }
 
-const ddbClient = new DynamoDBClient({ region: REGION });
-const docClient = DynamoDBDocumentClient.from(ddbClient);
+let ddbClient;
+let docClient;
+
+try {
+    if (REGION) { // Only initialize if REGION is set
+        ddbClient = new DynamoDBClient({ region: REGION });
+        docClient = DynamoDBDocumentClient.from(ddbClient);
+    } else {
+        console.error("AWS SDK DynamoDB Client NOT initialized due to missing REGION.");
+    }
+} catch (e) {
+    console.error("Error initializing AWS SDK DynamoDB Client:", e);
+    // This error at module level might cause Vercel to serve the file as text.
+}
+
 
 export default async function handler(req, res) {
-    if (!MEETINGS_TABLE_NAME || !REGION) { 
+    // Re-check critical configurations within the handler
+    if (!MEETINGS_TABLE_NAME || !REGION || !process.env.JWT_SECRET || !docClient) { 
+        console.error("/api/meetings handler: Server configuration error. Required variables or DDB client missing.");
         return res.status(500).json({ success: false, message: "Server configuration error for meetings API." });
     }
 
-    const authResult = authenticateToken(req);
+    const authResult = authenticateToken(req); // authenticateToken also checks for JWT_SECRET
     if (!authResult.authenticated) {
         return res.status(authResult.status || 401).json({ success: false, message: authResult.message || "Unauthorized" });
     }
@@ -30,32 +58,19 @@ export default async function handler(req, res) {
 
     if (req.method === 'GET') {
         try {
-            // Fetch meetings for the authenticated userId from DynamoDB
-            // Assuming a GSI 'UserIdDateIndex' with 'userId' as partition key and 'date' as sort key for efficient querying.
+            console.log(`API: GET /api/meetings attempt for user ${userId}`);
+            // Ensure you have a GSI 'UserIdDateIndex' on MEETINGS_TABLE_NAME
+            // Partition Key: userId (String)
+            // Sort Key: date (String - ISO8601 format)
             const params = {
                 TableName: MEETINGS_TABLE_NAME,
-                IndexName: 'UserIdDateIndex', // Replace with your actual GSI name
+                IndexName: 'UserIdDateIndex', 
                 KeyConditionExpression: "userId = :uid",
                 ExpressionAttributeValues: { ":uid": userId },
-                ScanIndexForward: false // To get newest meetings first if 'date' is the GSI sort key
+                ScanIndexForward: false // To get newest meetings first
             };
             
-            // If you don't have a GSI on userId, you'd have to use Scan + FilterExpression,
-            // which is less performant on large tables.
-            // const params = {
-            //     TableName: MEETINGS_TABLE_NAME,
-            //     FilterExpression: "userId = :uid",
-            //     ExpressionAttributeValues: { ":uid": userId }
-            // };
-            // const { Items: userMeetings } = await docClient.send(new ScanCommand(params));
-            
             const { Items: userMeetings } = await docClient.send(new QueryCommand(params));
-            
-            // DynamoDB Query with ScanIndexForward: false on a date sort key should return them sorted.
-            // If not, or if using Scan, sort here:
-            // if (userMeetings) {
-            //     userMeetings.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            // }
             
             console.log(`API: Fetched ${userMeetings ? userMeetings.length : 0} meetings for user ${userId}`);
             res.status(200).json(userMeetings || []);
@@ -66,9 +81,9 @@ export default async function handler(req, res) {
         }
     } else if (req.method === 'POST') {
         try {
+            console.log(`API: POST /api/meetings attempt for user ${userId}`);
             const { title, date, clientEmail, notes } = req.body;
 
-            // Basic Input Validation
             if (!title || !date || !clientEmail) {
                 return res.status(400).json({ success: false, message: 'Title, date, and clientEmail are required.' });
             }
