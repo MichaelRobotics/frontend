@@ -7,20 +7,34 @@ import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dyn
 
 const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME;
 const JWT_SECRET = process.env.JWT_SECRET;
-const REGION = process.env.MY_AWS_REGION;
+const REGION = process.env.AWS_REGION; // Use Vercel's standard AWS_REGION
 
 if (!USERS_TABLE_NAME || !JWT_SECRET || !REGION) {
-    console.error("FATAL_ERROR: Missing critical environment variables for /api/auth/register.");
-    throw new Error("Server authentication system not configured.");
+    console.error("FATAL_ERROR: Missing critical environment variables for /api/auth/register. Ensure USERS_TABLE_NAME, JWT_SECRET, and AWS_REGION are set in Vercel.");
+    // This function might still be invoked by Vercel, so handle gracefully in handler.
 }
 
-const ddbClient = new DynamoDBClient({ region: REGION });
-const docClient = DynamoDBDocumentClient.from(ddbClient);
+let docClient;
+try {
+    if (REGION && USERS_TABLE_NAME && JWT_SECRET) { // Check all critical vars for this function
+        const ddbClient = new DynamoDBClient({ region: REGION }); // SDK picks up AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from env
+        docClient = DynamoDBDocumentClient.from(ddbClient);
+    } else {
+        console.error("DynamoDB Document Client or JWT_SECRET not initialized in /api/auth/register due to missing environment variables.");
+    }
+} catch(e) {
+    console.error("Error initializing AWS SDK client in /api/auth/register:", e);
+}
+
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         res.setHeader('Allow', ['POST']);
         return res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
+    }
+    
+    if (!docClient || !USERS_TABLE_NAME || !JWT_SECRET) { // Re-check for safety
+        return res.status(500).json({ success: false, message: "Server authentication system not configured due to missing environment variables." });
     }
 
     try {
@@ -54,7 +68,7 @@ export default async function handler(req, res) {
         const userId = uuidv4(); 
         const newUser = {
             userId: userId, 
-            email: lowerCaseEmail, // Assuming email is PK
+            email: lowerCaseEmail, 
             hashedPassword,
             name: name ? name.trim() : lowerCaseEmail.split('@')[0], 
             role: 'salesperson', 
@@ -73,6 +87,7 @@ export default async function handler(req, res) {
             if (dbError.name === 'ConditionalCheckFailedException') {
                  return res.status(409).json({ success: false, message: 'User with this email already exists (concurrent registration).' });
             }
+            console.error("DynamoDB Put Error:", dbError);
             throw dbError; 
         }
         
@@ -89,6 +104,10 @@ export default async function handler(req, res) {
 
     } catch (error) {
         console.error('API Registration error:', error);
+        // Check if it's an SDK client initialization error
+        if (error.message.includes("DynamoDBClient") || error.message.includes("credentials")) {
+             return res.status(500).json({ success: false, message: 'Server configuration error related to AWS credentials or region.' });
+        }
         res.status(500).json({ success: false, message: 'An internal server error occurred during registration.' });
     }
 }
