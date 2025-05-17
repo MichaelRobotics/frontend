@@ -353,42 +353,66 @@
 
     async function handleSaveMeeting(e) { 
         e.preventDefault();
-        if(newMeetingError) newMeetingError.classList.add('hidden');
-        if(saveMeetingBtn) setButtonLoadingStateCallback(saveMeetingBtn, true);
-
-        const meetingDetails = {
-            title: meetingTitleInput.value.trim(),
-            date: meetingDateInput.value,
-            clientEmail: clientEmailInput.value.trim(),
-            notes: meetingNotesInput.value.trim()
-        };
-
-        if (!meetingDetails.title || !meetingDetails.date || !meetingDetails.clientEmail) {
-            if(newMeetingError) { 
-                newMeetingError.textContent = "Title, Date, and Client Email are required.";
-                newMeetingError.classList.remove('hidden');
-            }
-            if(saveMeetingBtn) setButtonLoadingStateCallback(saveMeetingBtn, false);
-            return;
-        }
         
+        const saveButton = document.getElementById('save-meeting-btn-sales');
+        setButtonLoadingStateCallback(saveButton, true);
+
         try {
-            if (currentMeetingId) { 
-                const updatedMeeting = await updateMeetingAPI(currentMeetingId, meetingDetails);
-                showNotificationCallback(`Meeting "${updatedMeeting.title}" updated successfully!`, "success");
-            } else { 
-                const createdMeeting = await createMeetingAPI(meetingDetails);
-                showNotificationCallback(`Meeting "${createdMeeting.title}" scheduled successfully!`, "success");
+            const meetingId = meetingIdInputHidden.value;
+            const title = meetingTitleInput.value.trim();
+            const date = meetingDateInput.value;
+            const clientEmail = clientEmailInput.value.trim().toLowerCase();
+            const notes = meetingNotesInput.value.trim();
+
+            // Validate required fields
+            if (!title || !date || !clientEmail) {
+                throw new Error('Title, date, and client email are required.');
             }
-            await refreshMeetingsDisplay(); 
+
+            // Validate date
+            if (isNaN(new Date(date).getTime())) {
+                throw new Error('Invalid date format.');
+            }
+
+            // Validate email format
+            if (!/\S+@\S+\.\S+/.test(clientEmail)) {
+                throw new Error('Invalid client email format.');
+            }
+
+            // Validate title length
+            if (title.length < 3) {
+                throw new Error('Title must be at least 3 characters long.');
+            }
+
+            const meetingDetails = {
+                title,
+                date,
+                clientEmail,
+                notes
+            };
+
+            let result;
+            if (meetingId) {
+                result = await updateMeetingAPI(meetingId, meetingDetails);
+            } else {
+                result = await createMeetingAPI(meetingDetails);
+            }
+
+            if (!result || !result.success) {
+                throw new Error(result?.message || 'Failed to save meeting.');
+            }
+
+            await refreshMeetingsDisplay();
             showSalesView('list');
+            showNotificationCallback('Meeting saved successfully!', 'success');
+
         } catch (error) {
-            if(newMeetingError) {
-                newMeetingError.textContent = `Error: ${error.message || 'Could not save meeting.'}`;
-                newMeetingError.classList.remove('hidden');
-            }
+            console.error('Error saving meeting:', error);
+            newMeetingError.textContent = error.message;
+            newMeetingError.classList.remove('hidden');
+            showNotificationCallback(error.message, 'error');
         } finally {
-            if(saveMeetingBtn) setButtonLoadingStateCallback(saveMeetingBtn, false);
+            setButtonLoadingStateCallback(saveButton, false);
         }
     }
 

@@ -7,16 +7,29 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
-const REGION = process.env.MY_AWS_REGION;
+const REGION = process.env.AWS_REGION;
 
 if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) {
     console.error("FATAL_ERROR: Missing critical environment variables for analysis API.");
 }
 
-const ddbClient = new DynamoDBClient({ region: REGION });
-const docClient = DynamoDBDocumentClient.from(ddbClient);
+let docClient;
+try {
+    if (REGION && RECORDINGS_ANALYSIS_TABLE_NAME) {
+        const ddbClient = new DynamoDBClient({ region: REGION });
+        docClient = DynamoDBDocumentClient.from(ddbClient);
+    } else {
+        console.error("DynamoDB Document Client not initialized due to missing environment variables");
+    }
+} catch (error) {
+    console.error("Error initializing DynamoDB client:", error);
+}
 
 export default async function handler(req, res) {
+    if (!docClient || !RECORDINGS_ANALYSIS_TABLE_NAME) {
+        return res.status(500).json({ success: false, message: "Server configuration error for analysis API." });
+    }
+
     if (req.method !== 'GET') {
         res.setHeader('Allow', ['GET']);
         return res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
@@ -41,7 +54,10 @@ export default async function handler(req, res) {
     try {
         const params = {
             TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
-            Key: { recordingId: recordingId }, 
+            Key: { 
+                recordingId: recordingId,
+                createdAt: recording.createdAt // Add sort key for versioning
+            }
         };
         const { Item: recording } = await docClient.send(new GetCommand(params));
 
