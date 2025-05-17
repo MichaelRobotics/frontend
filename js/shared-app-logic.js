@@ -110,12 +110,32 @@ const SharedAppLogic = (() => {
 
     async function logoutAPI() {
         try {
-            await makeApiRequest('/api/auth/logout', 'POST'); 
-            console.log("[SharedAppLogic] logoutAPI: Logout API call successful or simulated.");
+            const response = await fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Logout failed');
+            }
+
+            // Clear local storage
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userData');
+            localStorage.removeItem('pendingRole');
+            
+            // Redirect to landing page
+            window.location.href = '/landing-page.html';
         } catch (error) {
-            console.warn("[SharedAppLogic] logoutAPI: Logout API call failed:", error.message);
-        } finally {
-            clearAuthTokenAndUser(); 
+            console.error('Logout error:', error);
+            // Still clear local storage and redirect even if API call fails
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userData');
+            localStorage.removeItem('pendingRole');
+            window.location.href = '/landing-page.html';
         }
     }
     

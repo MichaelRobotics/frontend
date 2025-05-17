@@ -65,3 +65,28 @@ export async function authenticateTokenOrClientAccess(req, recordingIdForClientV
     console.log(`Access Denied for recording ${recordingIdForClientValidation}: No valid user token or client access validation found.`);
     return { granted: false, message: "Access Denied. Valid authentication or client session required.", status: 401 };
 }
+
+async function validateClientAccess(recordingId, clientCode) {
+    try {
+        const response = await fetch('/api/client/validate-access', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                meetingId: recordingId,
+                clientCode: clientCode
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Client access validation failed');
+        }
+
+        const data = await response.json();
+        return data.token;
+    } catch (error) {
+        console.error('Client access validation error:', error);
+        throw error;
+    }
+}

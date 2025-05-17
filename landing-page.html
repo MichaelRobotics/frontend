@@ -370,8 +370,8 @@
     </div>
 
     <script>
-    // This landing page script is self-contained for its UI interactions and auth simulation.
-    // It will redirect to other HTML pages for the main app.
+    // This landing page script handles UI interactions and real API authentication.
+    // It redirects to other HTML pages for the main app functionality.
     document.addEventListener('DOMContentLoaded', () => {
         // --- Global State & Config for Landing Page ---
         let isLoggedIn = false; 
@@ -556,19 +556,42 @@
             });
         });
         
-        // --- Simulated Auth & Client Access Logic with Redirection ---
+        // --- Real API Authentication & Client Access Logic with Redirection ---
         async function handleLogin(email, password) { 
-            if (!email || !password) { if(authErrorModal){authErrorModal.textContent = 'Please enter email and password.'; authErrorModal.classList.remove('hidden');} return; }
-            if (password.length < 6) { if(authErrorModal){authErrorModal.textContent = 'Password must be at least 6 characters.'; authErrorModal.classList.remove('hidden');} return; }
+            if (!email || !password) { 
+                if(authErrorModal) {
+                    authErrorModal.textContent = 'Please enter email and password.';
+                    authErrorModal.classList.remove('hidden');
+                }
+                return;
+            }
             
-            // In a real app, call SharedAppLogic.loginAPI()
-            // For this landing page demo, we directly simulate and set localStorage
-            if (email.toLowerCase() === "test@example.com" && password === "password123") { 
-                currentUser = { name: email.split('@')[0], email: email.toLowerCase(), role: 'salesperson' }; 
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    if(authErrorModal) {
+                        authErrorModal.textContent = data.message || 'Login failed. Please try again.';
+                        authErrorModal.classList.remove('hidden');
+                    }
+                    return;
+                }
+
+                // Store the real JWT token and user data
+                currentUser = data.user;
                 isLoggedIn = true;
                 localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
-                localStorage.setItem('authToken', "simulated_jwt_token_for_" + email.toLowerCase()); 
-                updateLoginStateUI(); 
+                localStorage.setItem('authToken', data.token);
+                
+                updateLoginStateUI();
                 closeAuthModal();
                 showAppNotification(`Welcome back, ${currentUser.name}!`, 'success');
                 
@@ -580,41 +603,119 @@
                 } else {
                     if(roleSelectionArea) setTimeout(() => { roleSelectionArea.scrollIntoView({ behavior: 'smooth' }); }, 500);
                 }
-            } else {
-                 if(authErrorModal){authErrorModal.textContent = 'Invalid credentials (simulated).'; authErrorModal.classList.remove('hidden');}
+            } catch (error) {
+                console.error('Login error:', error);
+                if(authErrorModal) {
+                    authErrorModal.textContent = 'An error occurred during login. Please try again.';
+                    authErrorModal.classList.remove('hidden');
+                }
             }
         }
         async function handleRegister(email, password, confirmPassword, name) { 
-            if (!email || !password || !confirmPassword) { if(authErrorModal){authErrorModal.textContent = 'Please fill all fields.'; authErrorModal.classList.remove('hidden');} return; }
-            if (password !== confirmPassword) { if(authErrorModal){authErrorModal.textContent = 'Passwords do not match.'; authErrorModal.classList.remove('hidden');} return; }
-            if (password.length < 8) { if(authErrorModal){authErrorModal.textContent = 'Password must be at least 8 characters.'; authErrorModal.classList.remove('hidden');} return; }
+            if (!email || !password || !confirmPassword) { 
+                if(authErrorModal) {
+                    authErrorModal.textContent = 'Please fill all fields.';
+                    authErrorModal.classList.remove('hidden');
+                }
+                return;
+            }
+            if (password !== confirmPassword) { 
+                if(authErrorModal) {
+                    authErrorModal.textContent = 'Passwords do not match.';
+                    authErrorModal.classList.remove('hidden');
+                }
+                return;
+            }
+            if (password.length < 8) { 
+                if(authErrorModal) {
+                    authErrorModal.textContent = 'Password must be at least 8 characters.';
+                    authErrorModal.classList.remove('hidden');
+                }
+                return;
+            }
             
-            currentUser = { name: name || email.split('@')[0], email: email.toLowerCase(), role: 'salesperson' };
-            isLoggedIn = true;
-            localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
-            localStorage.setItem('authToken', "simulated_jwt_token_for_" + email.toLowerCase()); 
-            updateLoginStateUI(); 
-            closeAuthModal();
-            showAppNotification(`Account created for ${currentUser.name}! Welcome!`, 'success');
-            
-            const pendingRole = localStorage.getItem('pendingRole');
-             if (pendingRole && (pendingRole === 'salesperson' || pendingRole === 'recorder')) {
-                showAppNotification(`Redirecting to app dashboard...`, 'info', 2000);
-                localStorage.removeItem('pendingRole');
-                setTimeout(() => { window.location.href = 'app-main-dashboard.html'; }, 2000);
-            } else {
-                if(roleSelectionArea) setTimeout(() => { roleSelectionArea.scrollIntoView({ behavior: 'smooth' }); }, 500);
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password, name })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    if(authErrorModal) {
+                        authErrorModal.textContent = data.message || 'Registration failed. Please try again.';
+                        authErrorModal.classList.remove('hidden');
+                    }
+                    return;
+                }
+
+                // Store the real JWT token and user data
+                currentUser = data.user;
+                isLoggedIn = true;
+                localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
+                localStorage.setItem('authToken', data.token);
+                
+                updateLoginStateUI();
+                closeAuthModal();
+                showAppNotification(`Account created for ${currentUser.name}! Welcome!`, 'success');
+                
+                const pendingRole = localStorage.getItem('pendingRole');
+                if (pendingRole && (pendingRole === 'salesperson' || pendingRole === 'recorder')) {
+                    showAppNotification(`Redirecting to app dashboard...`, 'info', 2000);
+                    localStorage.removeItem('pendingRole');
+                    setTimeout(() => { window.location.href = 'app-main-dashboard.html'; }, 2000);
+                } else {
+                    if(roleSelectionArea) setTimeout(() => { roleSelectionArea.scrollIntoView({ behavior: 'smooth' }); }, 500);
+                }
+            } catch (error) {
+                console.error('Registration error:', error);
+                if(authErrorModal) {
+                    authErrorModal.textContent = 'An error occurred during registration. Please try again.';
+                    authErrorModal.classList.remove('hidden');
+                }
             }
         }
-        function handleLogout() {
-            currentUser = null; isLoggedIn = false;
-            localStorage.removeItem(USER_STORAGE_KEY);
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('pendingRole'); 
-            updateLoginStateUI(); 
-            showAppNotification('You have been signed out.', 'info');
+        async function handleLogout() {
+            try {
+                const response = await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Logout failed');
+                }
+
+                // Clear local storage
+                currentUser = null;
+                isLoggedIn = false;
+                localStorage.removeItem(USER_STORAGE_KEY);
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('pendingRole');
+                
+                // Update UI
+                updateLoginStateUI();
+                showAppNotification('You have been signed out.', 'info');
+            } catch (error) {
+                console.error('Logout error:', error);
+                // Still clear local storage even if API call fails
+                currentUser = null;
+                isLoggedIn = false;
+                localStorage.removeItem(USER_STORAGE_KEY);
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('pendingRole');
+                updateLoginStateUI();
+                showAppNotification('You have been signed out.', 'info');
+            }
         }
-        function handleClientAccessSubmit(meetingId, accessCode) {
+        async function handleClientAccessSubmit(meetingId, accessCode) {
             if (!meetingId || !accessCode) {
                 if(clientAccessErrorModal){
                     clientAccessErrorModal.textContent = 'Meeting ID and Access Code are required.';
@@ -622,11 +723,49 @@
                 }
                 return;
             }
-            showAppNotification(`Attempting to access Meeting ID: ${meetingId}...`, 'info', 1500);
-            setTimeout(() => {
-                window.location.href = `client.html?meetingId=${encodeURIComponent(meetingId)}&accessCode=${encodeURIComponent(accessCode)}`;
-            }, 1500);
-            closeClientAccessModal();
+
+            try {
+                showAppNotification(`Validating access for Meeting ID: ${meetingId}...`, 'info');
+                
+                const response = await fetch('/api/client/validate-access', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ meetingId, clientCode: accessCode })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    if(clientAccessErrorModal) {
+                        clientAccessErrorModal.textContent = data.message || 'Access denied. Please check your credentials.';
+                        clientAccessErrorModal.classList.remove('hidden');
+                    }
+                    showAppNotification('Access denied. Please check your credentials.', 'error');
+                    return;
+                }
+
+                // Store the client access token if provided
+                if (data.token) {
+                    localStorage.setItem('clientAccessToken', data.token);
+                }
+
+                showAppNotification('Access granted! Redirecting to client view...', 'success', 1500);
+                closeClientAccessModal();
+                
+                // Redirect to client view with the validated data
+                setTimeout(() => {
+                    window.location.href = `client.html?meetingId=${encodeURIComponent(meetingId)}&accessCode=${encodeURIComponent(accessCode)}`;
+                }, 1500);
+            } catch (error) {
+                console.error('Client access error:', error);
+                if(clientAccessErrorModal) {
+                    clientAccessErrorModal.textContent = 'An error occurred while validating access. Please try again.';
+                    clientAccessErrorModal.classList.remove('hidden');
+                }
+                showAppNotification('Error validating access. Please try again.', 'error');
+            }
         }
 
         if(loginFormModal) loginFormModal.addEventListener('submit', (e) => { e.preventDefault(); if(authErrorModal) authErrorModal.classList.add('hidden'); handleLogin(document.getElementById('login-email-modal').value, document.getElementById('login-password-modal').value); });
