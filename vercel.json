@@ -2,6 +2,15 @@
     "redirects": [
       { "source": "/", "destination": "/landing-page.html", "permanent": true }
     ],
-    "cleanUrls": true
-}
-  
+    "cleanUrls": true,
+    "builds": [
+      {
+        "src": "package.json",
+        "use": "@vercel/node",
+        "config": {
+          "buildCommand": "echo 'MY_ENV_VAR: $MY_ENV_VAR'; echo 'ANOTHER_ENV_VAR: $ANOTHER_ENV_VAR'; npm run build"
+        }
+      }
+    ]
+
+  }
