@@ -12,14 +12,15 @@ const SharedAppLogic = (() => {
     // --- UTILITY: HTTP Request Helper ---
     async function makeApiRequest(endpoint, method = 'GET', body = null, isFormData = false, isBlobResponse = false) {
         const headers = {};
+        // Always get the latest token from localStorage
+        const currentToken = localStorage.getItem('authToken');
+        
         // <<< START DEBUG LOGGING >>>
-        console.log("[SharedAppLogic] makeApiRequest: Current authToken from variable:", authToken);
-        const tokenFromStorageForDebug = localStorage.getItem('authToken');
-        console.log("[SharedAppLogic] makeApiRequest: Current authToken from localStorage:", tokenFromStorageForDebug);
+        console.log("[SharedAppLogic] makeApiRequest: Current authToken from localStorage:", currentToken ? "Present" : "Absent");
         // <<< END DEBUG LOGGING >>>
 
-        if (authToken) { // Use the authToken variable, which should be kept in sync with localStorage
-            headers['Authorization'] = `Bearer ${authToken}`;
+        if (currentToken) {
+            headers['Authorization'] = `Bearer ${currentToken}`;
         }
         
         // <<< START DEBUG LOGGING >>>
@@ -114,7 +115,7 @@ const SharedAppLogic = (() => {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    'Authorization': `Bearer ${authToken}`
                 }
             });
 
@@ -122,9 +123,8 @@ const SharedAppLogic = (() => {
                 throw new Error('Logout failed');
             }
 
-            // Clear local storage
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('userData');
+            // Clear local storage using the correct keys
+            clearAuthTokenAndUser();
             localStorage.removeItem('pendingRole');
             
             // Redirect to landing page
@@ -132,8 +132,7 @@ const SharedAppLogic = (() => {
         } catch (error) {
             console.error('Logout error:', error);
             // Still clear local storage and redirect even if API call fails
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('userData');
+            clearAuthTokenAndUser();
             localStorage.removeItem('pendingRole');
             window.location.href = '/landing-page.html';
         }
@@ -145,6 +144,8 @@ const SharedAppLogic = (() => {
             clearAuthTokenAndUser(); 
             return null;
         }
+        
+        // Update the authToken variable from localStorage
         authToken = localStorage.getItem('authToken'); 
         console.log("[SharedAppLogic] checkSessionAPI: Attempting to verify session with token:", authToken ? "Present" : "Absent");
 
@@ -159,15 +160,20 @@ const SharedAppLogic = (() => {
             clearAuthTokenAndUser(); 
             return null;
         } catch (error) { 
-            console.error("[SharedAppLogic] checkSessionAPI: Error during session check, token cleared.", error.message);
+            console.error("[SharedAppLogic] checkSessionAPI: Error during session check:", error.message);
+            clearAuthTokenAndUser();
             return null;
         }
     }
 
     function setAuthToken(token) {
-        authToken = token;
-        localStorage.setItem('authToken', token);
-        console.log("[SharedAppLogic] setAuthToken: Token stored in localStorage and variable.");
+        if (token) {
+            authToken = token;
+            localStorage.setItem('authToken', token);
+            console.log("[SharedAppLogic] setAuthToken: Token stored in localStorage and variable.");
+        } else {
+            clearAuthTokenAndUser();
+        }
     }
     function clearAuthTokenAndUser() {
         console.log("[SharedAppLogic] clearAuthTokenAndUser: Clearing token and user from localStorage and variable.");
