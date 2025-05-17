@@ -65,41 +65,24 @@ export default async function handler(req, res) {
             const { Items: userMeetings } = await docClient.send(new QueryCommand(params));
             
             console.log(`API: Fetched ${userMeetings ? userMeetings.length : 0} meetings for user ${userId}`);
-            res.status(200).json({ 
-                success: true, 
-                message: 'Meetings fetched successfully',
-                data: userMeetings || [] 
-            });
+            res.status(200).json(userMeetings || []);
 
         } catch (error) {
             console.error('API Error fetching meetings:', error);
-            res.status(500).json({ 
-                success: false, 
-                message: 'Failed to fetch meetings.', 
-                errorDetails: error.message 
-            });
+            res.status(500).json({ success: false, message: 'Failed to fetch meetings.', errorDetails: error.message });
         }
     } else if (req.method === 'POST') {
         try {
             const { title, date, clientEmail, notes } = req.body;
 
             if (!title || !date || !clientEmail) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: 'Title, date, and clientEmail are required.' 
-                });
+                return res.status(400).json({ success: false, message: 'Title, date, and clientEmail are required.' });
             }
             if (isNaN(new Date(date).getTime())) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: 'Invalid date format for meeting.' 
-                });
+                return res.status(400).json({ success: false, message: 'Invalid date format for meeting.' });
             }
             if (!/\S+@\S+\.\S+/.test(clientEmail)) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: 'Invalid client email format.' 
-                });
+                return res.status(400).json({ success: false, message: 'Invalid client email format.' });
             }
 
             const meetingId = `sm-${uuidv4()}`; 
@@ -131,25 +114,14 @@ export default async function handler(req, res) {
             };
             await docClient.send(new PutCommand(putParams));
             console.log(`API: Meeting ${meetingId} created for user ${userId} with linked recordingId ${recordingId}`);
-            res.status(201).json({ 
-                success: true, 
-                message: 'Meeting created successfully',
-                data: newMeeting 
-            }); 
+            res.status(201).json(newMeeting); 
 
         } catch (error) {
             console.error('API Error creating meeting:', error);
-            res.status(500).json({ 
-                success: false, 
-                message: 'Failed to create meeting.', 
-                errorDetails: error.message 
-            });
+            res.status(500).json({ success: false, message: 'Failed to create meeting.', errorDetails: error.message });
         }
     } else {
         res.setHeader('Allow', ['GET', 'POST']);
-        res.status(405).json({ 
-            success: false, 
-            message: `Method ${req.method} Not Allowed` 
-        });
+        res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
     }
 }
