@@ -398,11 +398,23 @@
                 result = await createMeetingAPI(meetingDetails);
             }
 
-            if (!result || !result.success) {
-                throw new Error(result?.message || 'Failed to save meeting.');
+            // Check if result exists and has required fields
+            if (!result || !result.id) {
+                throw new Error('Invalid response from server. Please try again.');
             }
 
-            await refreshMeetingsDisplay();
+            // Add the new meeting to local cache if it's a creation
+            if (!meetingId && result) {
+                meetings = [result, ...meetings];
+            }
+
+            try {
+                await refreshMeetingsDisplay();
+            } catch (refreshError) {
+                console.warn('Failed to refresh meetings list:', refreshError);
+                // Don't throw here, as the meeting was created successfully
+            }
+
             showSalesView('list');
             showNotificationCallback('Meeting saved successfully!', 'success');
 
