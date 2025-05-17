@@ -23,49 +23,70 @@
     </div>
 
     <div id="salesperson-view-container" class="min-h-screen flex flex-col">
+        <div class="flex-grow flex items-center justify-center">
+            <p class="text-xl text-gray-500">Loading Salesperson Dashboard...</p>
         </div>
+    </div>
 
     <script src="js/shared-app-logic.js"></script>
     <script src="js/salesperson-view.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initialize global notifications from shared logic
+        document.addEventListener('DOMContentLoaded', async () => { 
             SharedAppLogic.initGlobalNotifications();
-
-            // Basic authentication check
-            const storedUser = localStorage.getItem(SharedAppLogic.USER_STORAGE_KEY);
-            if (!storedUser) {
+            
+            // Check authentication status using SharedAppLogic
+            if (!SharedAppLogic.isAuthenticated()) { 
                 SharedAppLogic.showGlobalNotification('Access denied. Please sign in.', 'error', 3000);
+                // Redirect to landing page after a delay
                 setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
-                return; // Stop further execution
+                return; 
             }
-            // You might want to add role-specific auth check here if your USER_STORAGE_KEY stores roles
+            // Optional: Further verify session with backend
+            // try {
+            //     const user = await SharedAppLogic.checkSessionAPI();
+            //     if (!user) {
+            //         // checkSessionAPI handles redirect if token is invalid
+            //         return;
+            //     }
+            //     console.log("Session verified for user:", user.email);
+            // } catch (error) {
+            //     // checkSessionAPI handles redirect if token is invalid
+            //     return;
+            // }
+
 
             const viewContainer = document.getElementById('salesperson-view-container');
-            if (viewContainer && typeof SalespersonView !== 'undefined') {
-                // Inject the HTML content for the salesperson view
-                viewContainer.innerHTML = SalespersonView.getHTML();
-
-                // Initialize the SalespersonView module
-                // Note: SharedAppLogic.loadMeetings() is called when shared-app-logic.js is parsed.
+            if (viewContainer && typeof SalespersonView !== 'undefined' && typeof SharedAppLogic !== 'undefined') {
+                viewContainer.innerHTML = SalespersonView.getHTML(); // Inject the view's HTML
+                
+                // Initialize the SalespersonView module with all necessary API callbacks
                 SalespersonView.init(
-                    SharedAppLogic.getMeetings(),          // Pass the loaded meetings data
-                    SharedAppLogic.showGlobalNotification, // Callback for notifications
-                    (targetView) => {                      // Callback for view switching
-                        if (targetView === 'index') {
+                    SharedAppLogic.showGlobalNotification,
+                    (targetView) => { // Navigation callback
+                        if (targetView === 'index') { // 'index' refers to the app-main-dashboard
                             window.location.href = 'app-main-dashboard.html';
                         }
-                        // Add other specific navigation if SalespersonView needs to trigger them
+                        // Add other specific navigation from salesperson view if needed
                     },
-                    SharedAppLogic.generateId,             // Utility to generate IDs
-                    SharedAppLogic.generateRecorderLink,   // Utility to generate recorder links
-                    SharedAppLogic.saveMeetings,           // Callback to save meetings data
-                    SharedAppLogic.setButtonLoadingState,  // Utility for button loading states
-                    SharedAppLogic.getMeetingById          // Utility to get a specific meeting
+                    SharedAppLogic.generateId,          
+                    SharedAppLogic.generateRecorderLink,
+                    SharedAppLogic.fetchMeetingsAPI, // Pass the actual API functions
+                    SharedAppLogic.createMeetingAPI,
+                    SharedAppLogic.updateMeetingAPI,
+                    SharedAppLogic.deleteMeetingAPI,
+                    SharedAppLogic.fetchAnalysisDataAPI,
+                    SharedAppLogic.queryAnalysisAPI,
+                    SharedAppLogic.downloadAnalysisPdfAPI,
+                    SharedAppLogic.setButtonLoadingState,  
+                    SharedAppLogic.getMeetingById // For local cache lookups after fetch
                 );
             } else {
-                console.error("Salesperson view container or SalespersonView module not found.");
-                SharedAppLogic.showGlobalNotification("Error loading salesperson module.", "error");
+                console.error("Salesperson view container or SalespersonView/SharedAppLogic module not found.");
+                if(typeof SharedAppLogic !== 'undefined' && typeof SharedAppLogic.showGlobalNotification === 'function'){
+                    SharedAppLogic.showGlobalNotification("Error loading salesperson module.", "error");
+                } else {
+                    alert("Critical Error: Salesperson module could not be loaded.");
+                }
             }
         });
     </script>

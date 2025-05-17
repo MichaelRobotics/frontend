@@ -1,10 +1,14 @@
 // /js/salesperson-view.js
 const SalespersonView = (() => {
     let meetings = []; // Local cache of meetings, fetched from backend
+    
+    // Callbacks from SharedAppLogic
     let showNotificationCallback;
     let switchViewCallback;
     let setButtonLoadingStateCallback;
-    let getMeetingByIdCallback; // From SharedAppLogic, searches local 'meetingsData' cache
+    // getMeetingByIdCallback from SharedAppLogic searches SharedAppLogic's meetingsDataCache,
+    // which is updated by fetchMeetingsAPI.
+    let getMeetingByIdCallback; 
 
     // API interaction callbacks from SharedAppLogic
     let fetchMeetingsAPI;
@@ -14,24 +18,24 @@ const SalespersonView = (() => {
     let fetchAnalysisDataAPI;
     let queryAnalysisAPI;
     let downloadAnalysisPdfAPI;
-    let generateIdCallback; // May still be used for frontend temp display if needed before backend ID
-    let generateRecorderLinkCallback; // Backend will generate the canonical link
+    // These are less critical if backend handles all ID/link generation, but kept for consistency
+    let generateIdCallback; 
+    let generateRecorderLinkCallback; 
 
-    let currentMeetingId = null;
-    let currentMeetingForAnalysis = null; // Store the full meeting object for PDF/Q&A context
+    let currentMeetingId = null; // Stores the ID of the meeting being edited or viewed in detail
+    let currentMeetingForAnalysis = null; // Stores the full meeting object when its details/analysis are viewed
     let questionHistoryArray = [];
 
     // DOM Elements
     let meetingListView, newEditMeetingView, meetingDetailsView, newMeetingBtn, meetingList, noMeetingsMessage;
-    let formTitle, newEditMeetingForm, meetingIdInput, meetingTitleInput, meetingDateInput, clientEmailInput, meetingNotesInput, cancelMeetingFormBtn, saveMeetingBtn, newMeetingError;
+    let formTitle, newEditMeetingForm, meetingIdInputHidden, meetingTitleInput, meetingDateInput, clientEmailInput, meetingNotesInput, cancelMeetingFormBtn, saveMeetingBtn, newMeetingError;
     let detailsMeetingTitle, detailsMeetingDate, detailsClientEmail, detailsMeetingStatus, detailsClientCode, detailsRecorderLinkAnchor, detailsMeetingNotes, editMeetingBtn, deleteMeetingBtn, downloadPdfBtnSales;
     let analysisNotAvailable, analysisContentWrapper, analysisTabs, analysisPanels;
     let questionForm, questionInput, askButton, questionResultWrapper, questionTextEl, answerTextEl, questionHistory;
     let backToListBtn, logoutBtnSales, mainMenuBtnSales;
 
     function getHTML() {
-        // HTML structure remains largely the same as provided in "js/salesperson-view.js (with PDF Download)"
-        // The "Download PDF Report" button is already included.
+        // HTML structure includes the "Download PDF Report" button
         return `
         <header class="bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-xl sticky top-0 z-40">
             <div class="container mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center">
@@ -196,7 +200,7 @@ const SalespersonView = (() => {
         noMeetingsMessage = viewContainer.querySelector('#no-meetings-message-sales');
         formTitle = viewContainer.querySelector('#form-title-sales');
         newEditMeetingForm = viewContainer.querySelector('#new-edit-meeting-form-sales');
-        meetingIdInput = viewContainer.querySelector('#meeting-id-sales-hidden');
+        meetingIdInputHidden = viewContainer.querySelector('#meeting-id-sales-hidden');
         meetingTitleInput = viewContainer.querySelector('#meeting-title-sales-input');
         meetingDateInput = viewContainer.querySelector('#meeting-date-sales-input');
         clientEmailInput = viewContainer.querySelector('#client-email-sales-input');
@@ -251,16 +255,23 @@ const SalespersonView = (() => {
     }
 
     async function refreshMeetingsDisplay() {
+        if (!fetchMeetingsAPI) {
+            console.error("fetchMeetingsAPI callback not initialized in SalespersonView.");
+            if (noMeetingsMessage) noMeetingsMessage.textContent = "Error: Meeting service not available.";
+            return;
+        }
         try {
             if (noMeetingsMessage) noMeetingsMessage.textContent = "Fetching meetings...";
-            meetings = await fetchMeetingsAPI(); // Use the API callback
+            meetings = await fetchMeetingsAPI(); 
             renderSalesMeetingList();
              if (noMeetingsMessage && meetings.length === 0) {
                 noMeetingsMessage.textContent = 'No meetings scheduled. Click "Schedule New Meeting" to begin.';
+            } else if (noMeetingsMessage) {
+                noMeetingsMessage.classList.add('hidden'); // Hide if meetings are present
             }
         } catch (error) {
-            showNotificationCallback("Could not load meetings. Please try again later.", "error");
-            if (noMeetingsMessage) noMeetingsMessage.textContent = "Could not load meetings.";
+            // Error notification is handled by SharedAppLogic.makeApiRequest
+            if (noMeetingsMessage) noMeetingsMessage.textContent = "Could not load meetings. Please try refreshing.";
         }
     }
 
@@ -268,26 +279,26 @@ const SalespersonView = (() => {
         if (!meetingList || !noMeetingsMessage) return;
         meetingList.innerHTML = '';
         
-        if (meetings.length === 0) { 
-            noMeetingsMessage.classList.remove('hidden'); 
+        if (!Array.isArray(meetings) || meetings.length === 0) { 
+            if (noMeetingsMessage) noMeetingsMessage.classList.remove('hidden'); 
             return; 
         }
-        noMeetingsMessage.classList.add('hidden');
-        // meetings array is already sorted by backend or by fetchMeetingsAPI if needed
-        // If not, sort here: meetings.sort((a, b) => new Date(b.date) - new Date(a.date));
+        if (noMeetingsMessage) noMeetingsMessage.classList.add('hidden');
         
-        meetings.forEach((meeting, index) => {
+        // Sort meetings by date, most recent first. Backend might also sort.
+        const sortedMeetings = [...meetings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        sortedMeetings.forEach((meeting, index) => {
             const item = document.createElement('div');
             item.className = 'meeting-item-card flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 fade-in';
             item.style.setProperty('--delay', `${index * 0.05}s`);
-            item.dataset.id = meeting.id; // Use meeting.id (which is the salesperson's meeting ID)
+            item.dataset.id = meeting.id; 
             
             let statusClass = 'status-cancelled'; 
             if (meeting.status === 'Scheduled') statusClass = 'status-scheduled';
             else if (meeting.status === 'Completed') statusClass = 'status-completed';
-            else if (meeting.status === 'Processing') statusClass = 'status-processing'; // Added for clarity
-            else if (meeting.status === 'Recording') statusClass = 'status-recording'; // Added for clarity
-
+            else if (meeting.status === 'Processing') statusClass = 'status-processing'; 
+            else if (meeting.status === 'Recording') statusClass = 'status-recording'; 
 
             item.innerHTML = `
                 <div class="flex-grow">
@@ -306,28 +317,32 @@ const SalespersonView = (() => {
     
     function openNewSalesMeetingForm() {
         currentMeetingId = null;
+        currentMeetingForAnalysis = null; // Clear context
         if(formTitle) formTitle.textContent = 'Schedule New Meeting';
         if(newEditMeetingForm) newEditMeetingForm.reset();
-        if(meetingIdInput) meetingIdInput.value = '';
+        if(meetingIdInputHidden) meetingIdInputHidden.value = ''; 
         if(meetingDateInput) {
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
             tomorrow.setHours(9,0,0,0);
-            meetingDateInput.value = tomorrow.toISOString().slice(0,16);
+            try {
+                meetingDateInput.value = tomorrow.toISOString().slice(0,16);
+            } catch(e) { /* Handle potential errors if toISOString().slice() fails */ }
         }
         showSalesView('form');
     }
 
     function openEditSalesMeetingForm(id) {
-        const meeting = meetings.find(m => m.id === id); // Find in local cache
+        const meeting = meetings.find(m => m.id === id); 
         if (!meeting) {
             showNotificationCallback("Meeting not found in local cache. Please refresh.", "error");
             return;
         }
         currentMeetingId = id;
+        currentMeetingForAnalysis = null; // Clear context for new/edit
         if(formTitle) formTitle.textContent = 'Edit Meeting Details';
         if(newEditMeetingForm) newEditMeetingForm.reset();
-        if(meetingIdInput) meetingIdInput.value = meeting.id;
+        if(meetingIdInputHidden) meetingIdInputHidden.value = meeting.id;
         if(meetingTitleInput) meetingTitleInput.value = meeting.title;
         if(meetingDateInput) meetingDateInput.value = new Date(meeting.date).toISOString().slice(0,16);
         if(clientEmailInput) clientEmailInput.value = meeting.clientEmail;
@@ -335,7 +350,7 @@ const SalespersonView = (() => {
         showSalesView('form');
     }
 
-    async function handleSaveMeeting(e) {
+    async function handleSaveMeeting(e) { 
         e.preventDefault();
         if(newMeetingError) newMeetingError.classList.add('hidden');
         if(saveMeetingBtn) setButtonLoadingStateCallback(saveMeetingBtn, true);
@@ -361,38 +376,34 @@ const SalespersonView = (() => {
                 await updateMeetingAPI(currentMeetingId, meetingDetails);
                 showNotificationCallback("Meeting updated successfully!", "success");
             } else { 
-                // Backend will generate IDs, clientCode, recorderLink
                 await createMeetingAPI(meetingDetails);
                 showNotificationCallback("Meeting scheduled successfully!", "success");
             }
-            await refreshMeetingsDisplay(); // Fetch latest list from backend
+            await refreshMeetingsDisplay(); 
             showSalesView('list');
         } catch (error) {
-            // showNotificationCallback is likely called by SharedAppLogic.makeApiRequest on error
             if(newMeetingError) {
                 newMeetingError.textContent = `Error: ${error.message || 'Could not save meeting.'}`;
                 newMeetingError.classList.remove('hidden');
             }
+            // Notification for API error is handled by SharedAppLogic
         } finally {
             if(saveMeetingBtn) setButtonLoadingStateCallback(saveMeetingBtn, false);
         }
     }
 
-    async function viewSalesMeetingDetails(id) { // Made async
-        const meeting = meetings.find(m => m.id === id); // Get from local cache first
+    async function viewSalesMeetingDetails(id) { 
+        let meeting = meetings.find(m => m.id === id); 
         if (!meeting) { 
             showNotificationCallback("Meeting details not found in cache. Refreshing...", "warning");
-            await refreshMeetingsDisplay(); // Try to refresh
-            const refreshedMeeting = meetings.find(m => m.id === id);
-            if (!refreshedMeeting) {
+            await refreshMeetingsDisplay(); 
+            meeting = meetings.find(m => m.id === id);
+            if (!meeting) {
                 showNotificationCallback("Meeting not found even after refresh.", "error");
                 return;
             }
-            currentMeetingForAnalysis = { ...refreshedMeeting }; // Use the refreshed one
-        } else {
-            currentMeetingForAnalysis = { ...meeting };
         }
-        
+        currentMeetingForAnalysis = { ...meeting }; 
         currentMeetingId = currentMeetingForAnalysis.id;
 
         if(detailsMeetingTitle) detailsMeetingTitle.textContent = currentMeetingForAnalysis.title;
@@ -404,24 +415,28 @@ const SalespersonView = (() => {
         }
         if(detailsClientCode) detailsClientCode.textContent = currentMeetingForAnalysis.clientCode || 'N/A';
         if(detailsRecorderLinkAnchor) {
+            // The backend provides the full recorderLink
             detailsRecorderLinkAnchor.href = currentMeetingForAnalysis.recorderLink || "#";
-            detailsRecorderLinkAnchor.dataset.link = currentMeetingForAnalysis.recorderLink || ""; // For copy button
+            detailsRecorderLinkAnchor.dataset.link = currentMeetingForAnalysis.recorderLink || ""; 
         }
         if(detailsMeetingNotes) detailsMeetingNotes.textContent = currentMeetingForAnalysis.notes || 'No notes provided.';
 
-        if (downloadPdfBtnSales) downloadPdfBtnSales.classList.add('hidden'); // Hide initially
+        if (downloadPdfBtnSales) downloadPdfBtnSales.classList.add('hidden'); 
+        if (analysisContentWrapper) analysisContentWrapper.classList.add('hidden');
+        if (analysisNotAvailable) analysisNotAvailable.classList.add('hidden');
 
-        if (currentMeetingForAnalysis.status === 'Completed' && currentMeetingForAnalysis.recorderId) {
+
+        if (currentMeetingForAnalysis.status === 'Completed' && currentMeetingForAnalysis.recordingId) {
+            if(analysisNotAvailable) analysisNotAvailable.classList.add('hidden'); // Hide "not available" message
+            if(analysisContentWrapper) {
+                 analysisContentWrapper.classList.remove('hidden'); // Show wrapper
+                 Object.values(analysisPanels).forEach(p => { if(p) p.innerHTML = '<p class="text-center p-4">Loading analysis...</p>'; });
+            }
+
             try {
-                if(analysisNotAvailable) analysisNotAvailable.classList.add('hidden');
-                if(analysisContentWrapper) analysisContentWrapper.classList.remove('hidden');
-                // Show a loading state for analysis
-                Object.values(analysisPanels).forEach(p => { if(p) p.innerHTML = '<p class="text-center p-4">Loading analysis...</p>'; });
-
-
-                const analysisData = await fetchAnalysisDataAPI(currentMeetingForAnalysis.recorderId);
-                if (analysisData) { // Check if data is actually returned
-                    currentMeetingForAnalysis.analysisData = analysisData; // Cache it on the meeting object
+                const analysisData = await fetchAnalysisDataAPI(currentMeetingForAnalysis.recordingId);
+                if (analysisData) { 
+                    currentMeetingForAnalysis.analysisData = analysisData; 
                     populateSalesAnalysisData(analysisData);
                     if(downloadPdfBtnSales) downloadPdfBtnSales.classList.remove('hidden');
                 } else {
@@ -434,9 +449,8 @@ const SalespersonView = (() => {
                     analysisNotAvailable.querySelector('p:first-of-type').textContent = "Failed to load meeting analysis.";
                     analysisNotAvailable.querySelector('p:last-of-type').textContent = error.message || "Please try again later.";
                 }
-                showNotificationCallback("Failed to load analysis.", "error");
             }
-        } else {
+        } else { // Not completed or no recordingId
             if(analysisContentWrapper) analysisContentWrapper.classList.add('hidden');
             if(analysisNotAvailable) {
                 analysisNotAvailable.classList.remove('hidden');
@@ -447,10 +461,10 @@ const SalespersonView = (() => {
                     if(p2) p2.textContent = "Analysis will be available after the meeting is recorded and processed.";
                 } else if (currentMeetingForAnalysis.status === 'Processing'){
                      if(p1) p1.textContent = "Meeting analysis is currently processing.";
-                    if(p2) p2.textContent = "Please check back later.";
-                } else {
+                    if(p2) p2.textContent = "Please check back later. You can refresh the meetings list.";
+                } else { // Other statuses or missing recordingId
                     if(p1) p1.textContent = "Meeting analysis is not yet available.";
-                    if(p2) p2.textContent = "Ensure the recording has been processed.";
+                    if(p2) p2.textContent = "Ensure the recording has been scheduled and processed.";
                 }
             }
         }
@@ -465,11 +479,12 @@ const SalespersonView = (() => {
             Object.values(analysisPanels).forEach(p => { if(p) p.innerHTML = '<p class="text-center p-4 text-red-500">Analysis data is missing or corrupt.</p>'; });
             return;
         }
-        analysisPanels.summary.innerHTML = analysisData.summary || "<p>Summary not available.</p>";
-        analysisPanels.keyPoints.innerHTML = analysisData.keyPoints || "<p>Key points not available.</p>";
-        analysisPanels.actionItems.innerHTML = analysisData.actionItems || "<p>Action items not available.</p>";
-        analysisPanels.questions.innerHTML = analysisData.questions || "<p>Client questions not available.</p>";
-        analysisPanels.sentiment.innerHTML = analysisData.sentiment || "<p>Sentiment analysis not available.</p>";
+        // Assuming analysisData from backend is already shaped for Salesperson
+        analysisPanels.summary.innerHTML = analysisData.salespersonAnalysis?.tailoredSummary || analysisData.generalSummary || "<p>Summary not available.</p>";
+        analysisPanels.keyPoints.innerHTML = analysisData.salespersonAnalysis?.keyPoints ? formatList(analysisData.salespersonAnalysis.keyPoints) : "<p>Key points not available.</p>";
+        analysisPanels.actionItems.innerHTML = analysisData.salespersonAnalysis?.actionItems ? formatActionItems(analysisData.salespersonAnalysis.actionItems) : "<p>Action items not available.</p>";
+        analysisPanels.questions.innerHTML = analysisData.salespersonAnalysis?.identifiedClientQuestions ? formatList(analysisData.salespersonAnalysis.identifiedClientQuestions) : "<p>Client questions not available.</p>";
+        analysisPanels.sentiment.innerHTML = analysisData.salespersonAnalysis?.sentimentAnalysis ? formatSentiment(analysisData.salespersonAnalysis.sentimentAnalysis) : "<p>Sentiment analysis not available.</p>";
 
         if(analysisTabs && analysisTabs.length > 0) {
             analysisTabs.forEach(t => t.classList.remove('active'));
@@ -478,6 +493,32 @@ const SalespersonView = (() => {
         Object.values(analysisPanels).forEach(p => { if(p) p.classList.add('hidden'); });
         if(analysisPanels.summary) analysisPanels.summary.classList.remove('hidden');
     }
+
+    // Helper functions to format array/object data into HTML for markdown-content
+    function formatList(items) {
+        if (!Array.isArray(items) || items.length === 0) return "<p>Not available.</p>";
+        return `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+    }
+    function formatActionItems(items) {
+        if (!Array.isArray(items) || items.length === 0) return "<p>No action items.</p>";
+        return `<ol>${items.map(item => `<li><strong>${escapeHtml(item.assignee || 'Unassigned')}:</strong> ${escapeHtml(item.task)}${item.dueDate ? ` (Due: ${escapeHtml(item.dueDate)})` : ''}</li>`).join('')}</ol>`;
+    }
+    function formatSentiment(sentiment) {
+        if (typeof sentiment !== 'object' || sentiment === null) return "<p>Sentiment data not available.</p>";
+        let html = `<p><strong>Overall:</strong> ${escapeHtml(sentiment.overall || 'N/A')}</p>`;
+        if (sentiment.trendOverTime && sentiment.trendOverTime.length > 0) {
+            html += `<h3>Trend:</h3><ul>${sentiment.trendOverTime.map(s => `<li>${escapeHtml(s.segment)}: ${escapeHtml(s.sentiment)}</li>`).join('')}</ul>`;
+        }
+        if (sentiment.keywords && sentiment.keywords.length > 0) {
+            html += `<h3>Keywords:</h3><ul>${sentiment.keywords.map(k => `<li><strong>${escapeHtml(k.term)}:</strong> ${escapeHtml(k.sentiment)} (Mentions: ${k.mentions || 1})</li>`).join('')}</ul>`;
+        }
+        return html;
+    }
+    function escapeHtml(unsafe) { // Basic HTML escaping
+        if (typeof unsafe !== 'string') return '';
+        return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
     
     async function handleDeleteSalesMeeting() {
         if (!currentMeetingId) return;
@@ -485,15 +526,16 @@ const SalespersonView = (() => {
         if (!meetingToDelete || !confirm(`Are you sure you want to delete the meeting "${meetingToDelete.title}"? This action cannot be undone.`)) return;
         
         try {
-            setButtonLoadingStateCallback(deleteMeetingBtn, true); // Optional: loading state for delete
+            if(deleteMeetingBtn) setButtonLoadingStateCallback(deleteMeetingBtn, true); 
             await deleteMeetingAPI(currentMeetingId);
             showNotificationCallback("Meeting deleted successfully.", "info");
             await refreshMeetingsDisplay();
             showSalesView('list');
             currentMeetingId = null; 
+            currentMeetingForAnalysis = null;
         } catch (error) {
-            // Notification already shown by SharedAppLogic
             console.error("Failed to delete meeting:", error);
+            // Notification handled by SharedAppLogic
         } finally {
             if(deleteMeetingBtn) setButtonLoadingStateCallback(deleteMeetingBtn, false);
         }
@@ -503,16 +545,16 @@ const SalespersonView = (() => {
         e.preventDefault();
         const q = questionInput.value.trim();
         if(!q) { showNotificationCallback("Please type your query.", "warning"); return; }
-        if (!currentMeetingForAnalysis || !currentMeetingForAnalysis.recorderId) {
-            showNotificationCallback("No active meeting context for Q&A.", "error");
+        if (!currentMeetingForAnalysis || !currentMeetingForAnalysis.recordingId) {
+            showNotificationCallback("No active meeting context for Q&A. Please view a completed meeting's details.", "error");
             return;
         }
         if(askButton) setButtonLoadingStateCallback(askButton, true);
 
         try {
-            const response = await queryAnalysisAPI(currentMeetingForAnalysis.recorderId, q);
+            const response = await queryAnalysisAPI(currentMeetingForAnalysis.recordingId, q);
             if(questionTextEl) questionTextEl.textContent = q;
-            if(answerTextEl) answerTextEl.innerHTML = response.answer || "No answer received.";
+            if(answerTextEl) answerTextEl.innerHTML = response.answer || "No answer received or an error occurred."; // Use innerHTML for potential markdown
             if(questionResultWrapper) questionResultWrapper.classList.remove('hidden');
             
             questionHistoryArray.unshift({question: q, answer: response.answer});
@@ -522,83 +564,87 @@ const SalespersonView = (() => {
         } catch (error) {
              if(answerTextEl) answerTextEl.textContent = `Error fetching answer: ${error.message}`;
              if(questionResultWrapper) questionResultWrapper.classList.remove('hidden');
+             // Notification handled by SharedAppLogic
         } finally {
             if(askButton) setButtonLoadingStateCallback(askButton, false);
         }
     }
 
-    function renderSalesQuestionHistory(){ /* ... (no changes from previous version) ... */ 
+    function renderSalesQuestionHistory(){ 
         if (!questionHistory) return;
         questionHistory.innerHTML = ''; 
-        if (questionHistoryArray.length === 0) { questionHistory.innerHTML = '<p class="text-gray-500 italic text-sm text-center py-3">No recent queries for this meeting.</p>'; return; }
+        if (questionHistoryArray.length === 0) { 
+            questionHistory.innerHTML = '<p class="text-gray-500 italic text-sm text-center py-3">No recent queries for this meeting.</p>'; 
+            return; 
+        }
         questionHistoryArray.forEach((item, index) => {
             const historyItem = document.createElement('div');
             historyItem.className = 'bg-white/70 p-3.5 rounded-lg shadow-sm border border-gray-200 text-sm fade-in';
             historyItem.style.setProperty('--delay', `${index * 0.1}s`); 
             historyItem.innerHTML = `
-                <p class="mb-1.5"><strong class="text-gray-700">Q:</strong> ${item.question}</p>
-                <p class="text-gray-600 leading-relaxed"><strong class="text-gray-700">A:</strong> ${item.answer}</p>
-            `; 
+                <p class="mb-1.5"><strong class="text-gray-700">Q:</strong> ${escapeHtml(item.question)}</p>
+                <p class="text-gray-600 leading-relaxed"><strong class="text-gray-700">A:</strong> ${item.answer}</p> 
+            `; // Assuming answer might contain simple HTML from markdown
             questionHistory.appendChild(historyItem);
         });
     }
 
-    async function handleDownloadSalespersonPdf() { // Now async
-        if (!currentMeetingForAnalysis || !currentMeetingForAnalysis.recorderId) {
+    async function handleDownloadSalespersonPdf() { 
+        if (!currentMeetingForAnalysis || !currentMeetingForAnalysis.recordingId) {
             showNotificationCallback("No meeting selected or analysis available for PDF.", "warning");
             return;
         }
-        if (!currentMeetingForAnalysis.analysisData && currentMeetingForAnalysis.status !== 'Completed') {
-             showNotificationCallback("Analysis not yet complete for this meeting.", "warning");
+        if (currentMeetingForAnalysis.status !== 'Completed') {
+             showNotificationCallback("Analysis not yet complete for this meeting to download PDF.", "warning");
             return;
         }
-        // If analysisData is not on currentMeetingForAnalysis, fetch it one last time
-        let analysisDataToUse = currentMeetingForAnalysis.analysisData;
-        if (!analysisDataToUse) {
+        // Ensure analysisData is loaded on currentMeetingForAnalysis for context if PDF Lambda needs it
+        if (!currentMeetingForAnalysis.analysisData) {
+            showNotificationCallback("Fetching analysis data for PDF...", "info");
             try {
-                analysisDataToUse = await fetchAnalysisDataAPI(currentMeetingForAnalysis.recorderId);
-                if (!analysisDataToUse) throw new Error("No analysis data found.");
-                currentMeetingForAnalysis.analysisData = analysisDataToUse; // Cache it
+                const analysisData = await fetchAnalysisDataAPI(currentMeetingForAnalysis.recordingId);
+                if (!analysisData) throw new Error("Analysis data is empty or could not be fetched.");
+                currentMeetingForAnalysis.analysisData = analysisData; // Cache it
             } catch (error) {
                  showNotificationCallback("Failed to fetch analysis data for PDF generation.", "error");
                  return;
             }
         }
-
-        // Instead of client-side HTML generation, call the backend PDF endpoint
+        
         try {
-            if(downloadPdfBtnSales) setButtonLoadingStateCallback(downloadPdfBtnSales, true, '.button-text', '.button-loader'); // Assuming button has these spans
-            await downloadAnalysisPdfAPI(currentMeetingForAnalysis.recorderId);
-            // showGlobalNotification is handled by downloadAnalysisPdfAPI on success/failure
+            if(downloadPdfBtnSales) setButtonLoadingStateCallback(downloadPdfBtnSales, true); 
+            await downloadAnalysisPdfAPI(currentMeetingForAnalysis.recordingId);
+            // Success/error notification is handled by downloadAnalysisPdfAPI in SharedAppLogic
         } catch (error) {
-            // Error already shown by SharedAppLogic.downloadAnalysisPdfAPI
-            console.error("PDF Download trigger failed:", error);
+            console.error("Salesperson PDF Download trigger failed:", error);
+            // Error notification handled by SharedAppLogic
         } finally {
-            if(downloadPdfBtnSales) setButtonLoadingStateCallback(downloadPdfBtnSales, false, '.button-text', '.button-loader');
+            if(downloadPdfBtnSales) setButtonLoadingStateCallback(downloadPdfBtnSales, false);
         }
     }
     
     function setupEventListeners() {
-        if (!newMeetingBtn) { console.error("Salesperson DOM not fully initialized for event listeners."); return; }
+        if (!newMeetingBtn || !cancelMeetingFormBtn || !newEditMeetingForm || !editMeetingBtn || !deleteMeetingBtn || !backToListBtn || !mainMenuBtnSales || !logoutBtnSales || !analysisTabs || !questionForm || !downloadPdfBtnSales) { 
+            console.error("Salesperson DOM not fully initialized for event listeners. One or more elements are missing."); 
+            return; 
+        }
         newMeetingBtn.addEventListener('click', openNewSalesMeetingForm);
         cancelMeetingFormBtn.addEventListener('click', () => showSalesView('list'));
         newEditMeetingForm.addEventListener('submit', handleSaveMeeting);
         editMeetingBtn.addEventListener('click', () => { if(currentMeetingId) openEditSalesMeetingForm(currentMeetingId); });
         deleteMeetingBtn.addEventListener('click', handleDeleteSalesMeeting);
         
-        if(backToListBtn) backToListBtn.addEventListener('click', () => showSalesView('list'));
+        backToListBtn.addEventListener('click', () => showSalesView('list'));
         
-        if(mainMenuBtnSales) {
-            mainMenuBtnSales.addEventListener('click', () => {
-                switchViewCallback('index'); 
-            });
-        }
-        if(logoutBtnSales) {
-            logoutBtnSales.addEventListener('click', () => {
-                showNotificationCallback("Exited Salesperson Role.", "info");
-                switchViewCallback('index'); 
-            });
-        }
+        mainMenuBtnSales.addEventListener('click', () => {
+            switchViewCallback('index'); 
+        });
+        logoutBtnSales.addEventListener('click', async () => { // Made async to await logoutAPI
+            await SharedAppLogic.logoutAPI(); // Call the shared logout logic
+            showNotificationCallback("Logged out. Redirecting...", "info");
+            // switchViewCallback('index'); // This might redirect too soon before logoutAPI completes if it were truly async
+            window.location.href = 'landing-page.html'; // More direct redirect after client-side logout
+        });
 
         analysisTabs.forEach(tab => { 
             tab.addEventListener('click', () => {
@@ -611,69 +657,77 @@ const SalespersonView = (() => {
             });
         });
         
-        if(questionForm) questionForm.addEventListener('submit', handleSalesQuestion);
+        questionForm.addEventListener('submit', handleSalesQuestion);
         
-        if (downloadPdfBtnSales) { // MODIFIED: Listener now calls the new async handler
-            downloadPdfBtnSales.addEventListener('click', handleDownloadSalespersonPdf);
-        }
+        downloadPdfBtnSales.addEventListener('click', handleDownloadSalespersonPdf);
         
-        const copyButtons = document.querySelectorAll('#meeting-details-view-sales .copy-code-btn');
-        copyButtons.forEach(button => {
-            button.addEventListener('click', (event) => {
-                const strongEl = event.currentTarget.previousElementSibling.previousElementSibling;
-                const labelText = strongEl ? strongEl.textContent : "Content";
-                let textToCopy;
+        // Copy buttons event listener (ensure it's only attached once)
+        // This might be better if meetingDetailsView is the parent for querySelectorAll
+        if (meetingDetailsView) {
+            const copyButtons = meetingDetailsView.querySelectorAll('.copy-code-btn');
+            copyButtons.forEach(button => {
+                // Check if listener already attached to prevent duplicates if initDOM/setup is called multiple times
+                if (button.dataset.listenerAttached !== 'true') {
+                    button.addEventListener('click', (event) => {
+                        const targetElement = event.currentTarget.previousElementSibling;
+                        let textToCopy;
+                        let labelText = "Content";
 
-                if (event.currentTarget.previousElementSibling.id === 'details-recorder-link-sales') {
-                    const linkAnchor = document.getElementById('details-recorder-link-sales');
-                    textToCopy = linkAnchor ? linkAnchor.dataset.link : null;
-                     if (textToCopy && textToCopy.startsWith('recorder.html')) {
-                        textToCopy = window.location.origin + window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1) + textToCopy;
-                    }
-                } else {
-                    const codeSpan = event.currentTarget.previousElementSibling;
-                    textToCopy = codeSpan ? codeSpan.textContent : null;
-                }
+                        if (targetElement && targetElement.tagName === 'A' && targetElement.id === 'details-recorder-link-sales') {
+                            textToCopy = targetElement.dataset.link; // Use the data-link attribute
+                            if (textToCopy && textToCopy.startsWith('recorder.html')) {
+                                textToCopy = window.location.origin + window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1) + textToCopy;
+                            } else if (textToCopy && !textToCopy.startsWith('http')) {
+                                textToCopy = window.location.origin + textToCopy;
+                            }
+                            labelText = "Recorder Link";
+                        } else if (targetElement && targetElement.tagName === 'SPAN') {
+                            textToCopy = targetElement.textContent;
+                            if(targetElement.previousElementSibling && targetElement.previousElementSibling.tagName === 'STRONG'){
+                                labelText = targetElement.previousElementSibling.textContent.replace(':','');
+                            }
+                        }
 
-                if (textToCopy) {
-                    navigator.clipboard.writeText(textToCopy)
-                        .then(() => showNotificationCallback(`${labelText} Copied!`, 'success'))
-                        .catch(err => showNotificationCallback('Failed to copy.', 'error'));
-                } else {
-                    showNotificationCallback('Nothing to copy.', 'warning');
+                        if (textToCopy) {
+                            navigator.clipboard.writeText(textToCopy)
+                                .then(() => showNotificationCallback(`${labelText} copied!`, 'success'))
+                                .catch(err => showNotificationCallback('Failed to copy.', 'error'));
+                        } else {
+                            showNotificationCallback('Nothing to copy.', 'warning');
+                        }
+                    });
+                    button.dataset.listenerAttached = 'true';
                 }
             });
-        });
+        }
     }
 
     return {
         init: (
-            // meetingsArr, // No longer pass initial meetings, fetch them
-            notifyCb, switchCb, 
-            _generateIdCb, _generateRecorderLinkCb, // Mark as potentially unused if backend handles all
-            _fetchMeetingsAPI, _createMeetingAPI, _updateMeetingAPI, _deleteMeetingAPI, 
-            _fetchAnalysisDataAPI, _queryAnalysisAPI, _downloadAnalysisPdfAPI,
-            _setButtonLoadingStateCb, _getMeetingByIdCb
+            _notifyCb, _switchCb, 
+            _genIdCb, _genRecLinkCb, 
+            _fetchMeetings, _createMeeting, _updateMeeting, _deleteMeeting, 
+            _fetchAnalysis, _queryAnalysis, _downloadPdf,
+            _setLoadStateCb, _getMeetingById 
         ) => {
-            // Store all API callbacks
-            showNotificationCallback = notifyCb;
-            switchViewCallback = switchCb;
-            generateIdCallback = _generateIdCb; // Keep for potential client-side temp IDs
-            generateRecorderLinkCallback = _generateRecorderLinkCb; // Keep for potential client-side display formatting
-            fetchMeetingsAPI = _fetchMeetingsAPI;
-            createMeetingAPI = _createMeetingAPI;
-            updateMeetingAPI = _updateMeetingAPI;
-            deleteMeetingAPI = _deleteMeetingAPI;
-            fetchAnalysisDataAPI = _fetchAnalysisDataAPI;
-            queryAnalysisAPI = _queryAnalysisAPI;
-            downloadAnalysisPdfAPI = _downloadAnalysisPdfAPI;
-            setButtonLoadingStateCallback = _setButtonLoadingStateCb;
-            getMeetingByIdCallback = _getMeetingByIdCb; // This gets from SharedAppLogic's cache
+            showNotificationCallback = _notifyCb;
+            switchViewCallback = _switchCb;
+            generateIdCallback = _genIdCb; 
+            generateRecorderLinkCallback = _genRecLinkCb; 
+            fetchMeetingsAPI = _fetchMeetings;
+            createMeetingAPI = _createMeeting;
+            updateMeetingAPI = _updateMeeting;
+            deleteMeetingAPI = _deleteMeeting;
+            fetchAnalysisDataAPI = _fetchAnalysis;
+            queryAnalysisAPI = _queryAnalysis;
+            downloadAnalysisPdfAPI = _downloadPdf;
+            setButtonLoadingStateCallback = _setLoadStateCb;
+            getMeetingByIdCallback = _getMeetingById; 
             
             initDOMReferences(); 
             setupEventListeners();
             
-            refreshMeetingsDisplay(); // Initial fetch and render
+            refreshMeetingsDisplay(); 
             showSalesView('list');
         },
         getHTML

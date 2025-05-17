@@ -1,12 +1,13 @@
 // /js/client-view.js
 const ClientView = (() => {
-    // meetings array is not directly used here as client accesses one meeting at a time via code
+    // No local 'meetings' array, as client accesses one meeting at a time via code/validation
     let showNotificationCallback;
     let switchViewCallback; // For window.location.href to landing page
     let setButtonLoadingStateCallback;
+    
     // API interaction callbacks from SharedAppLogic
     let validateClientAccessAPI;
-    let fetchAnalysisDataAPI; // To get the analysis data after validation
+    // fetchAnalysisDataAPI is not directly called by client; validateClientAccessAPI returns the needed data.
     let queryAnalysisAPI;
     let downloadAnalysisPdfAPI;
 
@@ -15,15 +16,15 @@ const ClientView = (() => {
 
     // DOM Elements
     let accessForm, accessCodeViewClient, meetingAnalysisViewClient, accessErrorClient, meetingIdInputClient, accessCodeInputClient, accessSubmitButtonClient;
-    let meetingTitleDisplayClient, meetingDateDisplayClient, pdfLinkClient; // pdfLinkClient is the download button
+    let meetingTitleDisplayClient, meetingDateDisplayClient, pdfLinkClientButton; // pdfLinkClient is now a button
     let analysisTabsClient, analysisPanelsClient = {}, summaryContentClient, keyPointsContentClient, actionItemsContentClient, questionsContentClient;
     let questionFormClient, questionInputClient, askButtonClient, questionResultWrapperClient, questionTextElClient, answerTextElClient, questionHistoryClient;
-    let logoutBtnClient, mainMenuBtnClient;
+    let logoutBtnClient, mainMenuBtnClient; // 'logoutBtnClient' is the "Exit View" button
 
 
     function getHTML() {
-        // HTML structure remains the same as provided in js/client-view.js (Part 7 of 5-file structure)
-        // The "Download PDF" button (pdfLinkClient) is already included.
+        // HTML structure includes the "Download PDF" button.
+        // The ID for the PDF download button is 'pdf-link-client' as per existing DOM caching.
         return `
         <header class="bg-gradient-to-r from-green-600 to-green-700 text-white shadow-xl sticky top-0 z-40">
             <div class="container mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center">
@@ -129,7 +130,7 @@ const ClientView = (() => {
         
         meetingTitleDisplayClient = viewContainer.querySelector('#meeting-title-client');
         meetingDateDisplayClient = viewContainer.querySelector('#meeting-date-client');
-        pdfLinkClient = viewContainer.querySelector('#pdf-link-client'); // This is the "Download PDF" button
+        pdfLinkClientButton = viewContainer.querySelector('#pdf-link-client'); // Changed from pdfLinkClient
         
         analysisTabsClient = viewContainer.querySelectorAll('#meeting-analysis-view-client .analysis-tab');
         summaryContentClient = viewContainer.querySelector('#summary-content-client');
@@ -165,7 +166,7 @@ const ClientView = (() => {
         logoutBtnClient.classList.toggle('hidden', viewName === 'access'); 
     }
 
-    async function handleClientAccess(e) { // Made async
+    async function handleClientAccess(e) { 
         if(e) e.preventDefault(); 
         if(accessErrorClient) accessErrorClient.classList.add('hidden');
         
@@ -182,23 +183,24 @@ const ClientView = (() => {
         if(accessSubmitButtonClient) setButtonLoadingStateCallback(accessSubmitButtonClient, true);
 
         try {
-            const response = await validateClientAccessAPI(meetingId, clientCode);
-            if (response && response.success && response.analysisData) {
-                currentClientMeeting = { // Store necessary info including the crucial recordingId
+            const response = await validateClientAccessAPI(meetingId, clientCode); 
+            if (response && response.success && response.analysisData && response.recordingId) {
+                currentClientMeeting = { 
                     title: response.title,
                     date: response.date,
-                    recordingId: response.recordingId, // This ID is for analysis, Q&A, PDF
+                    recordingId: response.recordingId, 
                     analysisData: response.analysisData 
                 };
 
                 if(meetingTitleDisplayClient) meetingTitleDisplayClient.textContent = `Analysis for: ${currentClientMeeting.title}`;
                 if(meetingDateDisplayClient) meetingDateDisplayClient.textContent = `Date: ${new Date(currentClientMeeting.date).toLocaleDateString('en-US', { dateStyle: 'full' })}`;
                 
-                // Populate analysis panels with data from response.analysisData
+                // Populate analysis panels with data from response.analysisData (client-specific subset)
                 if(analysisPanelsClient.summary) analysisPanelsClient.summary.innerHTML = response.analysisData.summary || "<p>Summary not available.</p>";
-                if(analysisPanelsClient.keyPoints) analysisPanelsClient.keyPoints.innerHTML = response.analysisData.keyPoints || "<p>Key points not available.</p>";
-                if(analysisPanelsClient.actionItems) analysisPanelsClient.actionItems.innerHTML = response.analysisData.actionItems || "<p>Action items not available.</p>";
-                if(analysisPanelsClient.questions) analysisPanelsClient.questions.innerHTML = response.analysisData.questions || "<p>Questions discussed not available.</p>";
+                if(analysisPanelsClient.keyPoints) analysisPanelsClient.keyPoints.innerHTML = response.analysisData.keyPoints && response.analysisData.keyPoints.length > 0 ? `<ul>${response.analysisData.keyPoints.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : "<p>Key points not available.</p>";
+                if(analysisPanelsClient.actionItems) analysisPanelsClient.actionItems.innerHTML = response.analysisData.actionItems && response.analysisData.actionItems.length > 0 ? `<ol>${response.analysisData.actionItems.map(item => `<li><strong>${escapeHtml(item.assignee || 'Task')}:</strong> ${escapeHtml(item.task)}</li>`).join('')}</ol>` : "<p>Action items not available.</p>";
+                if(analysisPanelsClient.questions) analysisPanelsClient.questions.innerHTML = response.analysisData.questions && response.analysisData.questions.length > 0 ? `<ul>${response.analysisData.questions.map(item => `<li>${escapeHtml(item.question || item)}</li>`).join('')}</ul>` : "<p>Questions discussed not available.</p>";
+
 
                 if(analysisTabsClient && analysisTabsClient.length > 0) {
                     analysisTabsClient.forEach(t => t.classList.remove('active'));
@@ -213,21 +215,21 @@ const ClientView = (() => {
                 showClientView('analysis');
                 showNotificationCallback(`Successfully accessed meeting: ${currentClientMeeting.title}`, "success");
             } else {
-                throw new Error(response.message || "Invalid Meeting ID/Client Code, or analysis not ready.");
+                const errorMessage = response && response.message ? response.message : "Invalid Meeting ID/Client Code, or analysis not ready.";
+                throw new Error(errorMessage);
             }
         } catch (error) {
             if(accessErrorClient) {
                 accessErrorClient.textContent = error.message || "Access denied. Please check credentials or try later.";
                 accessErrorClient.classList.remove('hidden');
             }
-            showNotificationCallback(error.message || "Access denied.", "error");
-            currentClientMeeting = null; // Clear any stale meeting data
+            currentClientMeeting = null; 
         } finally {
             if(accessSubmitButtonClient) setButtonLoadingStateCallback(accessSubmitButtonClient, false);
         }
     }
     
-    async function handleClientQuestion(e){ // Made async
+    async function handleClientQuestion(e){ 
         e.preventDefault();
         const q = questionInputClient.value.trim();
         if(!q) {
@@ -241,8 +243,7 @@ const ClientView = (() => {
         if(askButtonClient) setButtonLoadingStateCallback(askButtonClient, true);
         
         try {
-            // The backend /api/recordings/{recordingId}/query-analysis will handle role-specific agent
-            const response = await queryAnalysisAPI(currentClientMeeting.recordingId, q);
+            const response = await queryAnalysisAPI(currentClientMeeting.recordingId, q); 
             
             if(questionTextElClient) questionTextElClient.textContent = q;
             if(answerTextElClient) answerTextElClient.innerHTML = response.answer || "No answer received from AI.";
@@ -254,15 +255,19 @@ const ClientView = (() => {
             if(questionInputClient) questionInputClient.value = '';
 
         } catch (error) {
-            if(answerTextElClient) answerTextElClient.textContent = `Error fetching answer: ${error.message}`;
-            if(questionResultWrapperClient) questionResultWrapperClient.classList.remove('hidden');
-            showNotificationCallback(`Q&A Error: ${error.message}`, "error");
+             if(answerTextElClient) answerTextElClient.textContent = `Error fetching answer: ${error.message}`;
+             if(questionResultWrapperClient) questionResultWrapperClient.classList.remove('hidden');
         } finally {
             if(askButtonClient) setButtonLoadingStateCallback(askButtonClient, false);
         }
     }
 
-    function renderClientQuestionHistory(){ /* ... (no changes from previous version) ... */ 
+    function escapeHtml(unsafe) { // Basic HTML escaping
+        if (typeof unsafe !== 'string') return '';
+        return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    function renderClientQuestionHistory(){ 
         if (!questionHistoryClient) return;
         questionHistoryClient.innerHTML = ''; 
         if (questionHistoryArray.length === 0) {
@@ -274,27 +279,25 @@ const ClientView = (() => {
             historyItem.className = 'bg-white/70 p-3.5 rounded-lg shadow-sm border border-gray-200 text-sm fade-in';
             historyItem.style.setProperty('--delay', `${i*0.1}s`);
             historyItem.innerHTML = `
-                <p class="mb-1.5"><strong class="text-gray-700">Q:</strong> ${item.question}</p>
+                <p class="mb-1.5"><strong class="text-gray-700">Q:</strong> ${escapeHtml(item.question)}</p>
                 <p class="text-gray-600 leading-relaxed"><strong class="text-gray-700">A:</strong> ${item.answer}</p> 
             `; 
             questionHistoryClient.appendChild(historyItem);
         });
     }
 
-    async function handleDownloadClientPdf() { // Made async
+    async function handleDownloadClientPdf() { 
         if (!currentClientMeeting || !currentClientMeeting.recordingId) {
             showNotificationCallback("No meeting analysis loaded to download PDF.", "warning");
             return;
         }
         try {
-            if(pdfLinkClient) setButtonLoadingStateCallback(pdfLinkClient, true); // pdfLinkClient is the button
-            await downloadAnalysisPdfAPI(currentClientMeeting.recordingId);
-            // Success/error notification is handled by downloadAnalysisPdfAPI in SharedAppLogic
+            if(pdfLinkClientButton) setButtonLoadingStateCallback(pdfLinkClientButton, true); 
+            await downloadAnalysisPdfAPI(currentClientMeeting.recordingId); 
         } catch (error) {
-            // Error already shown
             console.error("Client PDF Download trigger failed:", error);
         } finally {
-            if(pdfLinkClient) setButtonLoadingStateCallback(pdfLinkClient, false);
+            if(pdfLinkClientButton) setButtonLoadingStateCallback(pdfLinkClientButton, false);
         }
     }
 
@@ -330,12 +333,12 @@ const ClientView = (() => {
         }
         if(mainMenuBtnClient) { 
              mainMenuBtnClient.addEventListener('click', () => {
-                switchViewCallback('index'); 
+                switchViewCallback('index'); // This will navigate to landing-page.html
             });
         }
-        if(pdfLinkClient) { // pdfLinkClient is the "Download PDF" button
-            pdfLinkClient.addEventListener('click', (e) => {
-                e.preventDefault(); // It's an <a> tag in HTML, prevent default navigation
+        if(pdfLinkClientButton) { 
+            pdfLinkClientButton.addEventListener('click', (e) => {
+                e.preventDefault(); // Good practice for buttons that trigger JS
                 handleDownloadClientPdf();
             });
         }
@@ -343,32 +346,35 @@ const ClientView = (() => {
 
     return {
         init: (
-            // meetingsArr, // Not needed directly, client fetches one by one
             notifyCb, switchCb, 
             _setButtonLoadingStateCb, 
-            _validateClientAccessAPI, 
-            _fetchAnalysisDataAPI, 
-            _queryAnalysisAPI,
-            _downloadAnalysisPdfAPI
-            // _getMeetingByIdCb // Not directly used by client view after validation
-            ) => {
+            _validateClientAccess, 
+            _fetchAnalysis, // Kept for consistency, though validateClientAccessAPI returns data
+            _queryAnalysis,
+            _downloadPdf
+        ) => {
             showNotificationCallback = notifyCb;
             switchViewCallback = switchCb;
             setButtonLoadingStateCallback = _setButtonLoadingStateCb;
-            validateClientAccessAPI = _validateClientAccessAPI;
-            fetchAnalysisDataAPI = _fetchAnalysisDataAPI;
-            queryAnalysisAPI = _queryAnalysisAPI;
-            downloadAnalysisPdfAPI = _downloadAnalysisPdfAPI;
+            validateClientAccessAPI = _validateClientAccess;
+            // fetchAnalysisDataAPI = _fetchAnalysis; // Not directly used for initial load
+            queryAnalysisAPI = _queryAnalysis;
+            downloadAnalysisPdfAPI = _downloadPdf;
             
             initDOMReferences(); 
             setupEventListeners();
             showClientView('access'); 
         },
         getHTML,
-        attemptDirectAccess: async (meetingId, accessCode) => { // Made async
+        attemptDirectAccess: async (meetingId, accessCode) => { 
             if(meetingIdInputClient) meetingIdInputClient.value = meetingId;
             if(accessCodeInputClient) accessCodeInputClient.value = accessCode;
-            await handleClientAccess(); // Call the internal handler which is now async
+            // Automatically submit the form if values are pre-filled
+            if (meetingIdInputClient.value && accessCodeInputClient.value && accessSubmitButtonClient) {
+                accessSubmitButtonClient.click(); // This will trigger handleClientAccess
+            } else {
+                 await handleClientAccess(); // Call if button click isn't feasible or for direct logic
+            }
         }
     };
 })();

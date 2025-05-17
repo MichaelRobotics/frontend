@@ -1,33 +1,51 @@
 // File: /api/meetings/[meetingId].js
-// Handles GET /api/meetings/:meetingId
-// Handles PUT /api/meetings/:meetingId
-// Handles DELETE /api/meetings/:meetingId
+// Handles GET, PUT, DELETE for /api/meetings/:meetingId
 
-// const AWS = require('aws-sdk');
-// const { authenticateToken } = require('../../../utils/auth'); // Adjust path as necessary
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { authenticateToken } from '../../../utils/auth'; // Adjust path
 
-// Configure AWS SDK
-// AWS.config.update({ /* ... */ });
-// const dynamoDb = new AWS.DynamoDB.DocumentClient();
-// const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
+const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
+// If cascading deletes involve other tables:
+// const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
+// const QNA_HISTORY_TABLE_NAME = process.env.QNA_HISTORY_TABLE_NAME;
+const REGION = process.env.MY_AWS_REGION;
 
-// Placeholder for your actual authentication logic
-function authenticateToken(req) {
-    // For demo, assume authenticated if any auth header is present
-    // In production, verify JWT properly
-    if (req.headers.authorization) {
-        return { authenticated: true, user: { userId: "user-sim-123", email: "test@example.com", role: "salesperson" } };
+if (!MEETINGS_TABLE_NAME || !REGION) {
+    console.error("FATAL_ERROR: Missing critical environment variables for meetings/[meetingId] API.");
+}
+
+const ddbClient = new DynamoDBClient({ region: REGION });
+const docClient = DynamoDBDocumentClient.from(ddbClient);
+
+// Helper to get and verify ownership
+async function getMeetingAndVerifyOwnership(meetingId, ownerId) {
+    if (!MEETINGS_TABLE_NAME) throw new Error("MEETINGS_TABLE_NAME not configured for ownership check.");
+    const params = {
+        TableName: MEETINGS_TABLE_NAME,
+        Key: { id: meetingId }, 
+    };
+    const { Item: meeting } = await docClient.send(new GetCommand(params));
+    if (!meeting) {
+        return { error: true, status: 404, message: 'Meeting not found.' };
     }
-    // return { authenticated: false, message: "Invalid or missing token" };
-     return { authenticated: true, user: { userId: "user-sim-123", email: "test@example.com", role: "salesperson" } }; // Allow for easier testing
+    if (meeting.userId !== ownerId) { 
+        console.warn(`Authorization attempt failed: User ${ownerId} tried to access meeting ${meetingId} owned by ${meeting.userId}`);
+        return { error: true, status: 403, message: 'Access denied to this meeting.' };
+    }
+    return { meeting };
 }
 
 export default async function handler(req, res) {
     const { meetingId } = req.query;
 
+    if (!MEETINGS_TABLE_NAME || !REGION) { 
+        return res.status(500).json({ success: false, message: "Server configuration error." });
+    }
+
     const authResult = authenticateToken(req);
     if (!authResult.authenticated) {
-        return res.status(401).json({ success: false, message: authResult.message || "Unauthorized" });
+        return res.status(authResult.status || 401).json({ success: false, message: authResult.message || "Unauthorized" });
     }
     const userId = authResult.user.userId;
 
@@ -37,41 +55,11 @@ export default async function handler(req, res) {
 
     if (req.method === 'GET') {
         try {
-            // --- PRODUCTION: Fetch meeting by meetingId from DynamoDB ---
-            // Ensure to also check if meeting.userId === userId for authorization
-            /*
-            const params = {
-                TableName: MEETINGS_TABLE_NAME,
-                Key: { id: meetingId } // Assuming 'id' is the primary key
-            };
-            const { Item: meeting } = await dynamoDb.get(params).promise();
-
-            if (!meeting) {
-                return res.status(404).json({ success: false, message: 'Meeting not found.' });
-            }
-            if (meeting.userId !== userId) { // Authorization check
-                return res.status(403).json({ success: false, message: 'Access denied to this meeting.' });
-            }
+            const { meeting, error, status, message } = await getMeetingAndVerifyOwnership(meetingId, userId);
+            if (error) return res.status(status).json({ success: false, message });
+            
+            console.log(`API: Fetched meeting ${meetingId} for user ${userId}`);
             res.status(200).json(meeting);
-            */
-
-            // --- SIMULATED GET ---
-            console.log(`API: GET /api/meetings/${meetingId} for user ${userId}`);
-            res.status(200).json({ 
-                id: meetingId, 
-                userId, 
-                title: `Details for Meeting ${meetingId} (Simulated)`, 
-                date: new Date().toISOString(), 
-                clientEmail: 'specific_client@example.com', 
-                status: 'Scheduled',
-                notes: 'Some specific notes for the fetched meeting.',
-                clientCode: 'XYZ789',
-                recordingId: `rec-${meetingId}-sim`, // Consistent with POST /api/meetings
-                recorderLink: `recorder.html?recordingId=rec-${meetingId}-sim&recorderCode=SPECIFICREC`,
-                recorderAccessCode: "SPECIFICREC",
-                analysisAvailable: false 
-            });
-            // --- END SIMULATED GET ---
 
         } catch (error) {
             console.error(`API Error fetching meeting ${meetingId}:`, error);
@@ -79,41 +67,53 @@ export default async function handler(req, res) {
         }
     } else if (req.method === 'PUT') {
         try {
-            const { title, date, clientEmail, notes } = req.body;
-            if (!title || !date || !clientEmail) {
-                return res.status(400).json({ success: false, message: 'Title, date, and clientEmail are required for update.' });
+            const updates = req.body; 
+            
+            if (Object.keys(updates).length === 0 || 
+                (updates.title === undefined && updates.date === undefined && updates.clientEmail === undefined && updates.notes === undefined)) {
+                 return res.status(400).json({ success: false, message: 'No valid update data provided. At least one field (title, date, clientEmail, notes) is required.' });
+            }
+            if (updates.date && isNaN(new Date(updates.date).getTime())) {
+                 return res.status(400).json({ success: false, message: 'Invalid date format for update.' });
+            }
+            if (updates.clientEmail && !/\S+@\S+\.\S+/.test(updates.clientEmail)) {
+                return res.status(400).json({ success: false, message: 'Invalid client email format for update.' });
             }
 
-            // --- PRODUCTION: Update meeting in DynamoDB ---
-            /*
-            const getItemParams = { TableName: MEETINGS_TABLE_NAME, Key: { id: meetingId } };
-            const { Item: existingMeeting } = await dynamoDb.get(getItemParams).promise();
-            if (!existingMeeting) return res.status(404).json({ success: false, message: "Meeting not found." });
-            if (existingMeeting.userId !== userId) return res.status(403).json({ success: false, message: "Access denied to update this meeting." });
+            const { meeting: existingMeeting, error, status, message } = await getMeetingAndVerifyOwnership(meetingId, userId);
+            if (error) return res.status(status).json({ success: false, message });
+
+            let updateExpression = "SET updatedAt = :ua";
+            const expressionAttributeValues = { ":ua": new Date().toISOString() };
+            const expressionAttributeNames = {};
+
+            if (updates.title !== undefined) { updateExpression += ", title = :t"; expressionAttributeValues[":t"] = updates.title.trim(); }
+            if (updates.date !== undefined) { updateExpression += ", #dt = :d"; expressionAttributeNames["#dt"] = "date"; expressionAttributeValues[":d"] = updates.date; }
+            if (updates.clientEmail !== undefined) { updateExpression += ", clientEmail = :ce"; expressionAttributeValues[":ce"] = updates.clientEmail.trim(); }
+            if (updates.notes !== undefined) { updateExpression += ", notes = :n"; expressionAttributeValues[":n"] = updates.notes.trim(); }
+            // Potentially add status update if allowed through this endpoint, e.g., for cancellation
+            // if (updates.status !== undefined && ['Scheduled', 'Cancelled'].includes(updates.status)) { 
+            //    updateExpression += ", #st = :s"; expressionAttributeNames["#st"] = "status"; expressionAttributeValues[":s"] = updates.status; 
+            // }
+            
+            if (Object.keys(expressionAttributeValues).length <= 1) { // Only :ua is present
+                 return res.status(400).json({ success: false, message: 'No valid fields provided for update.' });
+            }
 
             const updateParams = {
                 TableName: MEETINGS_TABLE_NAME,
                 Key: { id: meetingId },
-                UpdateExpression: "set title = :t, #dt = :d, clientEmail = :ce, notes = :n, updatedAt = :ua",
-                ExpressionAttributeNames: { "#dt": "date" }, 
-                ExpressionAttributeValues: {
-                    ":t": title, ":d": date, ":ce": clientEmail, ":n": notes || '', ":ua": new Date().toISOString()
-                },
+                UpdateExpression: updateExpression,
+                ExpressionAttributeValues: expressionAttributeValues,
                 ReturnValues: "ALL_NEW"
             };
-            const { Attributes: updatedMeeting } = await dynamoDb.update(updateParams).promise();
-            res.status(200).json(updatedMeeting);
-            */
+            if (Object.keys(expressionAttributeNames).length > 0) {
+                updateParams.ExpressionAttributeNames = expressionAttributeNames;
+            }
 
-            // --- SIMULATED PUT ---
-            console.log(`API: PUT /api/meetings/${meetingId} for user ${userId} with data:`, req.body);
-            const updatedSimulatedMeeting = { 
-                id: meetingId, userId, title, date, clientEmail, notes, 
-                status: 'Scheduled', 
-                message: "Updated (Simulated)" 
-            };
-            res.status(200).json(updatedSimulatedMeeting);
-            // --- END SIMULATED PUT ---
+            const { Attributes: updatedMeeting } = await docClient.send(new UpdateCommand(updateParams));
+            console.log(`API: Meeting ${meetingId} updated for user ${userId}`);
+            res.status(200).json(updatedMeeting);
 
         } catch (error) {
             console.error(`API Error updating meeting ${meetingId}:`, error);
@@ -121,22 +121,28 @@ export default async function handler(req, res) {
         }
     } else if (req.method === 'DELETE') {
         try {
-            // --- PRODUCTION: Delete meeting from DynamoDB ---
-            /*
-            const getItemParams = { TableName: MEETINGS_TABLE_NAME, Key: { id: meetingId } };
-            const { Item: existingMeeting } = await dynamoDb.get(getItemParams).promise();
-            if (!existingMeeting) return res.status(404).json({ success: false, message: "Meeting not found." });
-            if (existingMeeting.userId !== userId) return res.status(403).json({ success: false, message: "Access denied to delete this meeting." });
+            const { meeting, error, status, message } = await getMeetingAndVerifyOwnership(meetingId, userId);
+            if (error) return res.status(status).json({ success: false, message });
 
-            await dynamoDb.delete({ TableName: MEETINGS_TABLE_NAME, Key: { id: meetingId } }).promise();
-            // Consider deleting associated recordings/analysis from S3 and other tables.
+            const deleteParams = {
+                TableName: MEETINGS_TABLE_NAME,
+                Key: { id: meetingId }
+            };
+            await docClient.send(new DeleteCommand(deleteParams));
+            
+            // PRODUCTION TODO: Implement robust cascading delete logic.
+            // This is critical to avoid orphaned data and unnecessary storage costs.
+            // This might involve:
+            // 1. Getting the meeting.recordingId.
+            // 2. Deleting the corresponding item from RECORDINGS_ANALYSIS_TABLE_NAME.
+            // 3. Deleting the audio file from S3 (using s3AudioPath from RECORDINGS_ANALYSIS_TABLE_NAME).
+            // 4. Deleting PDF from S3 if stored (using pdfReportS3Path).
+            // 5. Deleting Q&A history from QNA_HISTORY_TABLE_NAME if used.
+            // This complex cleanup is often best handled by a separate, asynchronously invoked Lambda
+            // (e.g., triggered by a DynamoDB Stream on the MEETINGS_TABLE_NAME, or called by this function).
+            console.log(`API: Meeting ${meetingId} deleted by user ${userId}. Associated recordingId: ${meeting.recordingId}. Manual or automated cleanup of related resources (S3 audio, analysis data) is required.`);
+
             res.status(200).json({ success: true, message: `Meeting ${meetingId} deleted successfully.` });
-            */
-
-            // --- SIMULATED DELETE ---
-            console.log(`API: DELETE /api/meetings/${meetingId} for user ${userId}`);
-            res.status(200).json({ success: true, message: `Meeting ${meetingId} deleted (Simulated).` });
-            // --- END SIMULATED DELETE ---
 
         } catch (error) {
             console.error(`API Error deleting meeting ${meetingId}:`, error);

@@ -11,8 +11,7 @@
 </head>
 <body class="recorder-view-active"> <div id="app-notification" class="fixed bottom-6 right-6 w-full max-w-sm glass-effect p-5 shadow-2xl pointer-events-none opacity-0 transform translate-x-full rounded-xl z-[100] hidden">
         <div class="flex items-start">
-            <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5">
-                </div>
+            <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5"></div>
             <div class="flex-grow">
                 <p id="app-notification-message" class="text-sm text-gray-800 font-semibold"></p>
             </div>
@@ -23,73 +22,61 @@
     </div>
 
     <div id="recorder-view-container" class="min-h-screen flex flex-col">
+        <div class="flex-grow flex items-center justify-center">
+            <p class="text-xl text-gray-500">Loading Recorder Portal...</p>
         </div>
+    </div>
 
     <script src="js/shared-app-logic.js"></script>
     <script src="js/recorder-view.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initialize global notifications from shared logic
+        document.addEventListener('DOMContentLoaded', async () => { 
             SharedAppLogic.initGlobalNotifications();
 
-            // Basic authentication check
-            const storedUser = localStorage.getItem(SharedAppLogic.USER_STORAGE_KEY);
-            if (!storedUser) {
+            if (!SharedAppLogic.isAuthenticated()) { 
                 SharedAppLogic.showGlobalNotification('Access denied. Please sign in.', 'error', 3000);
                 setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
-                return; // Stop further execution
+                return; 
             }
+            // Optional: await SharedAppLogic.checkSessionAPI(); if (!SharedAppLogic.isAuthenticated()) return;
 
             const viewContainer = document.getElementById('recorder-view-container');
-            if (viewContainer && typeof RecorderView !== 'undefined') {
-                // Inject the HTML content for the recorder view
+            if (viewContainer && typeof RecorderView !== 'undefined' && typeof SharedAppLogic !== 'undefined') {
                 viewContainer.innerHTML = RecorderView.getHTML();
-
-                // Initialize the RecorderView module
+                
                 RecorderView.init(
-                    SharedAppLogic.getMeetings(),          // Pass the loaded meetings data
-                    SharedAppLogic.showGlobalNotification, // Callback for notifications
-                    (targetView) => {                      // Callback for view switching
-                        if (targetView === 'index') {
-                            window.location.href = 'app-main-dashboard.html';
-                        }
-                        // Add other specific navigation if RecorderView needs to trigger them
+                    SharedAppLogic.showGlobalNotification,
+                    (targetView) => { 
+                        if (targetView === 'index') window.location.href = 'app-main-dashboard.html';
                     },
-                    SharedAppLogic.saveMeetings,           // Callback to save meetings data
-                    SharedAppLogic.setButtonLoadingState,  // Utility for button loading states
-                    SharedAppLogic.getMeetingById,         // Utility to get a specific meeting
-                    SharedAppLogic.updateMeeting           // Utility to update meeting (important for recorder)
+                    SharedAppLogic.setButtonLoadingState,
+                    SharedAppLogic.getMeetingById,      // For looking up meetings to record or view analysis
+                    SharedAppLogic.updateMeetingAPI,    // To update status of meetings (e.g., 'recording', 'processing', 'completed')
+                    SharedAppLogic.addMeetingAPI,       // For new ad-hoc recordings if they create a new meeting entry
+                    SharedAppLogic.fetchMeetingsAPI,    // To list scheduled meetings
+                    SharedAppLogic.uploadRecordingAPI,
+                    SharedAppLogic.fetchAnalysisStatusAPI,
+                    SharedAppLogic.fetchAnalysisDataAPI,
+                    SharedAppLogic.downloadAnalysisPdfAPI,
+                    SharedAppLogic.generateId          // For client-side generation of ad-hoc recording IDs
                 );
 
-                // Handle deep linking for recorder if meetingId and recorderCode are in URL
                 const urlParams = new URLSearchParams(window.location.search);
-                const meetingIdParam = urlParams.get('meetingId'); // This is likely the recorderId
-                const recorderCodeParam = urlParams.get('recorderCode');
+                const urlRecordingId = urlParams.get('recordingId'); // This is the ID from recorderLink
+                const urlRecorderCode = urlParams.get('recorderCode');
 
-                if (meetingIdParam && recorderCodeParam) {
-                    // RecorderView needs a way to handle this.
-                    // Let's assume RecorderView.init or a new method will check these.
-                    // For now, we'll just log and notify.
-                    // console.log(`Recorder deep link: Meeting ID (Recorder ID) = ${meetingIdParam}, Code = ${recorderCodeParam}`);
-                    // SharedAppLogic.showGlobalNotification(`Attempting to load recorder for Meeting ID: ${meetingIdParam}`, 'info');
-                    
-                    // The RecorderView's init logic (or a dedicated function) should now use these params
-                    // to find the meeting and potentially auto-start or pre-fill details.
-                    // This might involve calling a specific function within RecorderView if it's exposed.
-                    // For this example, we'll rely on RecorderView's internal logic to check for these
-                    // if it's designed to do so on initialization or through a specific entry point.
-                    if (typeof RecorderView.handleDeepLink === 'function') {
-                        RecorderView.handleDeepLink(meetingIdParam, recorderCodeParam);
-                    } else {
-                        // console.warn("RecorderView.handleDeepLink function not found. Manual selection may be required.");
-                        // The user might need to manually find and start the recording from the list.
-                    }
+                if (urlRecordingId && urlRecorderCode && typeof RecorderView.handleDeepLink === 'function') {
+                    // Ensure meetings are loaded before attempting deep link, as handleDeepLink might rely on it
+                    await SharedAppLogic.fetchMeetingsAPI(); // Load meetings into SharedAppLogic cache
+                    RecorderView.handleDeepLink(urlRecordingId, urlRecorderCode);
                 }
-
-
             } else {
-                console.error("Recorder view container or RecorderView module not found.");
-                SharedAppLogic.showGlobalNotification("Error loading recorder module.", "error");
+                console.error("Recorder view container or RecorderView/SharedAppLogic module not found.");
+                if(typeof SharedAppLogic !== 'undefined' && SharedAppLogic.showGlobalNotification){
+                     SharedAppLogic.showGlobalNotification("Error loading recorder module.", "error");
+                } else {
+                    alert("Critical Error: Recorder module could not be loaded.");
+                }
             }
         });
     </script>

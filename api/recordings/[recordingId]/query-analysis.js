@@ -1,35 +1,38 @@
 // File: /api/recordings/[recordingId]/query-analysis.js
 // Handles POST /api/recordings/:recordingId/query-analysis
-// Vercel function acts as a proxy to AWS API Gateway for Q&A Lambda.
+// Vercel function fetches context from DynamoDB, proxies Q&A to role-specific AWS API Gateway -> Lambda,
+// and stores Q&A history within the main analysis object in DynamoDB.
 
-// const fetch = require('node-fetch'); // Or built-in fetch
-// const { authenticateTokenOrClientAccess } = require('../../../../utils/auth'); // Adjust path
-// const AWS = require('aws-sdk'); // For fetching context from DynamoDB
+import { authenticateTokenOrClientAccess } from '../../../../utils/auth'; // Adjust path
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+// import fetch from 'node-fetch'; // Or global fetch in Node 18+
 
-// Configure AWS SDK for DynamoDB
-// AWS.config.update({ /* ... */ });
-// const dynamoDb = new AWS.DynamoDB.DocumentClient();
-// const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
+const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
+const REGION = process.env.MY_AWS_REGION;
 
-// const SALES_QNA_API_GATEWAY_ENDPOINT = process.env.SALES_QNA_API_GATEWAY_ENDPOINT;
-// const CLIENT_QNA_API_GATEWAY_ENDPOINT = process.env.CLIENT_QNA_API_GATEWAY_ENDPOINT;
-// const API_GATEWAY_KEY = process.env.API_GATEWAY_KEY; // If your API Gateway is secured with an API Key
+// API Gateway Endpoints for Q&A Lambdas
+const SALES_QNA_API_GATEWAY_ENDPOINT = process.env.SALES_QNA_API_GATEWAY_ENDPOINT;
+const CLIENT_QNA_API_GATEWAY_ENDPOINT = process.env.CLIENT_QNA_API_GATEWAY_ENDPOINT;
+const API_GATEWAY_KEY = process.env.API_GATEWAY_KEY; // Optional
 
-// Placeholder for your actual authentication and role determination logic
-async function authenticateTokenOrClientAccess(req, recordingId) {
-    const userToken = req.headers.authorization;
-    if (userToken && userToken.includes("salesperson")) return { granted: true, role: "salesperson", user: { id: "user-sim-123"} };
-    // Simulate client access if a specific query param or header is present for testing
-    if (req.headers['x-client-validated-for-recording'] === recordingId) return { granted: true, role: "client" };
-    
-    return { granted: true, role: req.headers['x-simulated-role'] || "salesperson", user: { id: "user-sim-123"} }; // Default for testing
-    // return { granted: false, message: "Access Denied", status: 401 };
+if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION || 
+    !SALES_QNA_API_GATEWAY_ENDPOINT || !CLIENT_QNA_API_GATEWAY_ENDPOINT ||
+    !process.env.JWT_SECRET /* Needed by auth util */) {
+    console.error("FATAL_ERROR: Missing critical environment variables for query-analysis API.");
 }
+
+const ddbClient = new DynamoDBClient({ region: REGION });
+const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         res.setHeader('Allow', ['POST']);
         return res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
+    }
+    
+    if (!RECORDINGS_ANALYSIS_TABLE_NAME || !SALES_QNA_API_GATEWAY_ENDPOINT || !CLIENT_QNA_API_GATEWAY_ENDPOINT) {
+        return res.status(500).json({ success: false, message: "Server Q&A system not configured." });
     }
 
     const { recordingId } = req.query;
@@ -47,88 +50,116 @@ export default async function handler(req, res) {
         return res.status(authResult.status || 401).json({ success: false, message: authResult.message || "Access Denied" });
     }
     const role = authResult.role;
-    const userId = authResult.user ? authResult.user.id : null; // For logging or if agent needs it
+    const userIdForLog = authResult.user ? authResult.user.userId : 'client_session';
 
     try {
-        // --- PRODUCTION: Fetch context from DynamoDB, then Proxy to correct API Gateway for Q&A Lambda ---
-        /*
-        // 1. Fetch analysisData from DynamoDB
+        // 1. Fetch analysisData from DynamoDB to get transcript and agent identifier
         const recordingParams = {
             TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
             Key: { recordingId: recordingId },
         };
-        const { Item: recording } = await dynamoDb.get(recordingParams).promise();
+        const { Item: recording } = await docClient.send(new GetCommand(recordingParams));
 
         if (!recording || !recording.analysisData || !recording.analysisData.transcript) {
-            return res.status(404).json({ success: false, message: 'Transcript context not found for Q&A.' });
+            return res.status(404).json({ success: false, message: 'Transcript context not found for Q&A for this recording.' });
         }
-        const transcript = recording.analysisData.transcript;
+        if (recording.analysisStatus !== 'completed') {
+            return res.status(400).json({ success: false, message: 'Analysis is not yet complete for this recording. Cannot query.' });
+        }
+
+        const transcriptContext = recording.analysisData.transcript;
         let queryAgentIdentifier = null;
-        let additionalContext = {}; // e.g., role-specific summary
+        let additionalContextForAgent = {}; 
+        let targetApiGatewayEndpoint;
 
         if (role === 'salesperson' && recording.analysisData.salespersonAnalysis) {
             queryAgentIdentifier = recording.analysisData.salespersonAnalysis.queryAgentIdentifier;
-            additionalContext = { summary: recording.analysisData.salespersonAnalysis.tailoredSummary };
+            additionalContextForAgent = { 
+                summary: recording.analysisData.salespersonAnalysis.tailoredSummary, 
+                keyPoints: recording.analysisData.salespersonAnalysis.keyPoints 
+            };
+            targetApiGatewayEndpoint = SALES_QNA_API_GATEWAY_ENDPOINT;
         } else if (role === 'client' && recording.analysisData.clientAnalysis) {
             queryAgentIdentifier = recording.analysisData.clientAnalysis.queryAgentIdentifier;
-            additionalContext = { summary: recording.analysisData.clientAnalysis.tailoredSummary };
+            additionalContextForAgent = { 
+                summary: recording.analysisData.clientAnalysis.tailoredSummary, 
+                keyDecisions: recording.analysisData.clientAnalysis.keyDecisionsAndCommitments 
+            };
+            targetApiGatewayEndpoint = CLIENT_QNA_API_GATEWAY_ENDPOINT;
         } else {
-            // Fallback or error if no specific agent identifier for the role
-            return res.status(400).json({ success: false, message: "Q&A agent not configured for this role/recording." });
+            console.warn(`Q&A agent identifier or specific analysis section not found for role "${role}" on recording "${recordingId}".`);
+            return res.status(400).json({ success: false, message: "Q&A agent not configured for your role or this recording's current analysis state." });
         }
         
-        if (!queryAgentIdentifier) {
-             return res.status(500).json({ success: false, message: "Query agent identifier missing in analysis data." });
+        if (!queryAgentIdentifier || !targetApiGatewayEndpoint) {
+             console.error(`Configuration error: Query agent identifier or target endpoint missing for role ${role}, recording ${recordingId}`);
+             return res.status(500).json({ success: false, message: "Internal server error: Q&A agent configuration missing." });
         }
 
-        // 2. Determine API Gateway endpoint based on role (or pass agentId to a generic Q&A GW endpoint)
-        let targetApiGatewayEndpoint;
-        if (role === 'salesperson') targetApiGatewayEndpoint = SALES_QNA_API_GATEWAY_ENDPOINT;
-        else if (role === 'client') targetApiGatewayEndpoint = CLIENT_QNA_API_GATEWAY_ENDPOINT;
-        // else ... handle error or default
-
-        // 3. Call the API Gateway endpoint
-        const apiGwResponse = await fetch(targetApiGatewayEndpoint, {
+        // 2. Call the role-specific Q&A API Gateway endpoint
+        const apiGwPayload = {
+            question,
+            transcriptContext,
+            additionalRoleContext: additionalContextForAgent,
+            agentIdentifier: queryAgentIdentifier, 
+            recordingId, 
+            userId: userIdForLog 
+        };
+        
+        const fetchOptions = {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'x-api-key': API_GATEWAY_KEY // If API Gateway uses an API Key
+                ...(API_GATEWAY_KEY && { 'x-api-key': API_GATEWAY_KEY }),
             },
-            body: JSON.stringify({
-                question,
-                transcriptContext: transcript,
-                additionalRoleContext: additionalContext,
-                agentIdentifier: queryAgentIdentifier, // Lambda uses this to pick OpenAI Assistant or config
-                recordingId, // For logging/context in Lambda
-                userId // For logging/context in Lambda
-            })
-        });
+            body: JSON.stringify(apiGwPayload)
+        };
 
-        if (!apiGwResponse.ok) {
-            const errorData = await apiGwResponse.json().catch(() => ({ message: `Q&A Agent API Gateway error: ${apiGwResponse.status}`}));
-            throw new Error(errorData.message);
+        console.log(`API: Calling Q&A Agent at ${targetApiGatewayEndpoint} for recording ${recordingId}, role ${role}`);
+        const apiGwResponse = await fetch(targetApiGatewayEndpoint, fetchOptions);
+        
+        const responseBodyText = await apiGwResponse.text();
+        let qnaResult;
+        try {
+            qnaResult = JSON.parse(responseBodyText);
+        } catch(e) {
+            console.error("Failed to parse Q&A API Gateway response as JSON:", responseBodyText, "Status:", apiGwResponse.status);
+            throw new Error(`Invalid response from Q&A service: ${apiGwResponse.status} ${apiGwResponse.statusText}`);
         }
-        const qnaResult = await apiGwResponse.json();
 
-        // 4. TODO: Store Q&A pair in DynamoDB (e.g., in interactiveQnAHistory array or separate table)
+        if (!apiGwResponse.ok || !qnaResult.success || typeof qnaResult.answer === 'undefined') {
+            console.error("Q&A API Gateway Error Data:", qnaResult);
+            throw new Error(qnaResult.message || `Q&A Agent API Gateway error: ${apiGwResponse.status}`);
+        }
 
+        // 3. Store Q&A pair in DynamoDB (Append to list in RecordingsAnalysisTable)
+        const qnaEntry = { 
+            timestamp: new Date().toISOString(), 
+            roleOfQuerier: role, 
+            userId: userIdForLog, 
+            question, 
+            answerFromAgent: qnaResult.answer, 
+            agentUsed: queryAgentIdentifier 
+        };
+        
+        const updateQnAParams = {
+            TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
+            Key: { recordingId },
+            // Initialize interactiveQnAHistory as an empty list if it doesn't exist, then append.
+            UpdateExpression: "SET #ad.#ih = list_append(if_not_exists(#ad.#ih, :empty_list), :qnaEntryVal)",
+            ExpressionAttributeNames: { 
+                "#ad": "analysisData", // 'analysisData' is a top-level attribute (Map)
+                "#ih": "interactiveQnAHistory" // 'interactiveQnAHistory' is an attribute within the 'analysisData' map
+            },
+            ExpressionAttributeValues: { 
+                ":qnaEntryVal": [qnaEntry], // list_append expects lists as arguments
+                ":empty_list": [] 
+            }
+        };
+        await docClient.send(new UpdateCommand(updateQnAParams));
+        
+        console.log(`API: Q&A for ${recordingId} (Role: ${role}) processed and logged. Question: "${question}"`);
         res.status(200).json({ success: true, answer: qnaResult.answer });
-        */
-
-        // --- SIMULATED Q&A RESPONSE ---
-        console.log(`API: POST /api/recordings/${recordingId}/query-analysis for role ${role} with question: "${question}"`);
-        let simulatedAnswer = `Simulated AI for ${role} (Agent for ${recordingId}): `;
-        if (question.toLowerCase().includes("concern")) {
-            simulatedAnswer += (role === 'salesperson') 
-                ? `Based on our data, key concerns for ${recordingId} might involve integration or budget, which could be upsell opportunities.`
-                : `Regarding ${recordingId}, potential concerns discussed were related to project timelines.`;
-        } else {
-            simulatedAnswer += `I've processed your question about recording ${recordingId}. A detailed answer would come from the specialized AI agent.`;
-        }
-        // Simulate storing Q&A history
-        console.log(`Simulated: Storing Q&A - Q: ${question}, A: ${simulatedAnswer}`);
-        res.status(200).json({ success: true, answer: simulatedAnswer });
-        // --- END SIMULATED Q&A RESPONSE ---
 
     } catch (error) {
         console.error(`API Error querying analysis for recording ${recordingId}:`, error);

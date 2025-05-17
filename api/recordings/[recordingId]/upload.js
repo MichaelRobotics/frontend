@@ -1,13 +1,18 @@
 // File: /api/recordings/[recordingId]/upload.js
 // Handles POST /api/recordings/:recordingId/upload
-// Vercel function acts as a proxy to AWS API Gateway for this endpoint.
+// Vercel function acts as a proxy to an AWS API Gateway endpoint for audio intake and processing.
 
-// const fetch = require('node-fetch'); // If using node-fetch for Vercel Node runtime, or built-in fetch
-// const { authenticateToken } = require('../../../../utils/auth'); // Adjust path
+import { authenticateToken } from '../../../utils/auth'; // Adjust path to your auth.js utility
+// import fetch from 'node-fetch'; // For Node.js < 18, or use global fetch in Node 18+
+// For handling multipart/form-data if Vercel function needs to parse before proxying:
+// import formidable from 'formidable-serverless';
+// import fs from 'fs'; // If reading from temp file path from formidable
 
-// const API_GATEWAY_UPLOAD_ENDPOINT = process.env.API_GATEWAY_UPLOAD_ENDPOINT;
+// Environment Variables (set in Vercel project settings)
+const API_GATEWAY_AUDIO_INTAKE_ENDPOINT = process.env.API_GATEWAY_AUDIO_INTAKE_ENDPOINT;
+const API_GATEWAY_KEY = process.env.API_GATEWAY_KEY; // If your API Gateway endpoint is secured with an API key
 
-// Vercel config for file uploads (if not using a library that handles it well)
+// Vercel specific config if handling multipart/form-data directly in the function before proxying
 // export const config = {
 //   api: {
 //     bodyParser: false, 
@@ -22,76 +27,72 @@ export default async function handler(req, res) {
 
     const { recordingId } = req.query; 
 
-    // --- PRODUCTION: Authentication ---
-    // const authResult = authenticateToken(req);
-    // if (!authResult.authenticated) {
-    //     return res.status(401).json({ success: false, message: "Unauthorized" });
-    // }
-    // const userId = authResult.user.userId;
-    // ---
-
-    // --- SIMULATED AUTH ---
-    const userId = "user-sim-123"; // Placeholder
-    // ---
+    // Authenticate the user making the upload request
+    const authResult = authenticateToken(req);
+    if (!authResult.authenticated) {
+        return res.status(authResult.status || 401).json({ success: false, message: authResult.message || "Unauthorized" });
+    }
+    const userId = authResult.user.userId; 
 
     if (!recordingId) {
         return res.status(400).json({ success: false, message: "Recording ID is required in the path." });
     }
+    if (!API_GATEWAY_AUDIO_INTAKE_ENDPOINT) {
+        console.error("CRITICAL_ERROR: API_GATEWAY_AUDIO_INTAKE_ENDPOINT is not configured.");
+        return res.status(500).json({ success: false, message: "Server configuration error for audio processing." });
+    }
 
     try {
-        // This Vercel function will now proxy the request to your AWS API Gateway.
-        // The frontend sends FormData, so this function needs to forward it.
-        // Handling multipart/form-data proxying in Vercel serverless functions can be tricky.
-        // Simplest for Vercel might be to stream the req body if API Gateway can handle it,
-        // or use a library that correctly reconstructs and forwards the multipart request.
+        // This Vercel function proxies the multipart/form-data request to AWS API Gateway.
+        // The most robust way to handle file uploads to another service from a Vercel function
+        // is often to stream the request body directly if the receiving endpoint (API Gateway)
+        // is configured to handle raw binary streams or multipart/form-data passthrough.
 
-        // --- PRODUCTION: Proxy to AWS API Gateway ---
-        /*
-        const apiGatewayUrl = `${API_GATEWAY_UPLOAD_ENDPOINT}/${recordingId}/process`; // Example API Gateway path
-
-        // Forwarding FormData is complex. A common approach is to use a library like 'request' or 'axios'
-        // that can handle streaming the multipart form body.
-        // Or, if API Gateway can accept base64 encoded file + metadata in JSON:
-        // 1. Parse multipart form data here (using formidable-serverless or multer)
-        // 2. Read file into buffer, base64 encode it.
-        // 3. Construct JSON payload for API Gateway.
-        // 4. Send JSON payload to API Gateway.
-
-        // Example using node-fetch to proxy (simplified, might need adjustments for FormData):
-        const responseFromApiGw = await fetch(apiGatewayUrl, {
+        // Construct headers for the API Gateway request
+        const headersToApiGw = {
+            // Forward the original Content-Type, which includes the multipart boundary
+            'Content-Type': req.headers['content-type'],
+            // Forward Content-Length if available and required by API Gateway
+            ...(req.headers['content-length'] && { 'Content-Length': req.headers['content-length'] }),
+            ...(API_GATEWAY_KEY && { 'x-api-key': API_GATEWAY_KEY }),
+            'X-User-Id': userId, 
+            'X-Recording-Id': recordingId, 
+            // If other form fields (notes, quality, originalMeetingId, title) are sent
+            // and API Gateway + Lambda can parse them from multipart, they will be part of `req.body`.
+            // If not, you'd parse them here with `formidable` and send them as separate headers or in a JSON part.
+        };
+        
+        console.log(`API: Proxying audio upload for recordingId: ${recordingId} to API Gateway: ${API_GATEWAY_AUDIO_INTAKE_ENDPOINT}`);
+        
+        const responseFromApiGw = await fetch(API_GATEWAY_AUDIO_INTAKE_ENDPOINT, {
             method: 'POST',
-            body: req, // Attempt to stream the request body; Vercel might need specific handling for this.
-                       // Or construct FormData again if `req` is not directly streamable this way.
-            headers: {
-                // Forward relevant headers, including Content-Type (which will be multipart/form-data)
-                'Content-Type': req.headers['content-type'],
-                // Add any necessary API Gateway API Key if configured
-                'x-api-key': process.env.API_GATEWAY_KEY, 
-                // Forward user context if needed by the API Gateway/Lambda
-                'X-User-Id': userId,
-                'X-Original-Meeting-Id': req.headers['x-original-meeting-id'] || null // Assuming frontend sends this if applicable
-            }
+            headers: headersToApiGw,
+            body: req, // Stream the incoming request body. Node 18+ fetch supports this.
+                      // For older Node, `req` is a ReadableStream, might need `node-fetch` with specific handling.
+            // duplex: 'half' // May be needed for some Node.js fetch implementations when streaming request body
         });
+
+        const responseBodyText = await responseFromApiGw.text();
+        let result;
+        try {
+            result = JSON.parse(responseBodyText);
+        } catch (e) {
+            console.error("API Gateway response was not valid JSON:", responseBodyText, "Status:", responseFromApiGw.status);
+            // If API Gateway returns a non-JSON error (e.g., HTML error page), capture that.
+            throw new Error(`Invalid response from audio processing service. Status: ${responseFromApiGw.status}. Response: ${responseBodyText.substring(0, 200)}`);
+        }
 
         if (!responseFromApiGw.ok) {
-            const errorData = await responseFromApiGw.json().catch(() => ({ message: `API Gateway error: ${responseFromApiGw.status}`}));
-            throw new Error(errorData.message);
+            console.error("API Gateway Error Data:", result);
+            throw new Error(result.message || `Audio processing initiation failed via API Gateway: ${responseFromApiGw.status}`);
         }
-        const result = await responseFromApiGw.json();
-        res.status(responseFromApiGw.status).json(result);
-        */
-
-        // --- SIMULATED PROXY & ANALYSIS TRIGGER ---
-        console.log(`API: POST /api/recordings/${recordingId}/upload for user ${userId}.`);
-        console.log(`Simulated: Request proxied to AWS API Gateway. AWS Lambda will handle S3 upload & analysis trigger for ${recordingId}.`);
-        // The response from API Gateway would indicate that processing has started.
-        res.status(202).json({ // 202 Accepted is often used for async processing
-            success: true, 
-            recordingId: recordingId, 
-            message: 'Audio submitted for processing via API Gateway (simulated).', 
-            status: 'processing_initiated' 
-        });
-        // --- END SIMULATED ---
+        
+        console.log(`API: Upload for ${recordingId} proxied. API GW response:`, result);
+        // The Vercel function's primary role here is to proxy and relay the response.
+        // Any DB updates related to the *original meeting* (e.g., setting its status to 'Processing')
+        // should ideally be handled by the Audio Intake Lambda after successful S3 upload,
+        // or this Vercel function could do it if the API Gateway response confirms receipt by Lambda.
+        res.status(responseFromApiGw.status).json(result); 
 
     } catch (error) {
         console.error(`API Error uploading recording ${recordingId}:`, error);

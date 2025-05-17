@@ -1,60 +1,64 @@
 // File: /api/meetings/index.js
-// Handles GET /api/meetings (list meetings)
-// Handles POST /api/meetings (create new meeting)
+// Handles GET /api/meetings (list meetings for the authenticated user)
+// Handles POST /api/meetings (create a new meeting for the authenticated user)
 
-// const AWS = require('aws-sdk');
-// const { authenticateToken } = require('../../utils/auth'); // Your JWT authentication utility
-// const { v4: uuidv4 } = require('uuid');
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, ScanCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { v4 as uuidv4 } from 'uuid';
+import { authenticateToken } from '../../utils/auth'; // Adjust path
 
-// Configure AWS SDK
-// AWS.config.update({ /* ... */ });
-// const dynamoDb = new AWS.DynamoDB.DocumentClient();
-// const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
+const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
+const REGION = process.env.MY_AWS_REGION;
 
-// Placeholder for your actual authentication logic
-function authenticateToken(req) {
-    // In a real app, verify JWT from req.headers.authorization
-    // For now, simulate an authenticated user
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer simulated_jwt_token_for_")) {
-        const email = authHeader.split("Bearer simulated_jwt_token_for_")[1];
-         return { authenticated: true, user: { userId: `user-sim-${email.split('@')[0]}`, email: email, role: 'salesperson' } };
-    }
-    // return { authenticated: false, message: "Invalid or missing token" };
-    // For broader testing without frontend sending token yet:
-    return { authenticated: true, user: { userId: "user-sim-123", email: "test@example.com", role: "salesperson" } };
+if (!MEETINGS_TABLE_NAME || !REGION) {
+    console.error("FATAL_ERROR: Missing critical environment variables for meetings API.");
 }
 
+const ddbClient = new DynamoDBClient({ region: REGION });
+const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 export default async function handler(req, res) {
+    if (!MEETINGS_TABLE_NAME || !REGION) { 
+        return res.status(500).json({ success: false, message: "Server configuration error for meetings API." });
+    }
+
     const authResult = authenticateToken(req);
     if (!authResult.authenticated) {
-        return res.status(401).json({ success: false, message: authResult.message || "Unauthorized" });
+        return res.status(authResult.status || 401).json({ success: false, message: authResult.message || "Unauthorized" });
     }
     const userId = authResult.user.userId;
 
     if (req.method === 'GET') {
         try {
-            // --- PRODUCTION: Fetch meetings for the authenticated userId from DynamoDB ---
-            /*
+            // Fetch meetings for the authenticated userId from DynamoDB
+            // Assuming a GSI 'UserIdDateIndex' with 'userId' as partition key and 'date' as sort key for efficient querying.
             const params = {
                 TableName: MEETINGS_TABLE_NAME,
-                FilterExpression: "userId = :uid", 
-                ExpressionAttributeValues: { ":uid": userId }
+                IndexName: 'UserIdDateIndex', // Replace with your actual GSI name
+                KeyConditionExpression: "userId = :uid",
+                ExpressionAttributeValues: { ":uid": userId },
+                ScanIndexForward: false // To get newest meetings first if 'date' is the GSI sort key
             };
-            const data = await dynamoDb.scan(params).promise(); 
-            const userMeetings = data.Items || [];
-            res.status(200).json(userMeetings);
-            */
-
-            // --- SIMULATED GET ---
-            console.log(`API: GET /api/meetings for user ${userId}`);
-            const simulatedMeetings = [
-                { id: `sm-server-${Date.now() + 1000}`, userId, title: 'Q1 Review (Server)', date: new Date(Date.now() + 86400000 * 2).toISOString(), clientEmail: 'client.q1@example.com', status: 'Scheduled', notes: 'Review Q1 performance and plan Q2.', clientCode: 'C1A2B3', recordingId: `rec-srv-${Date.now() + 1000}`, recorderLink: `recorder.html?recordingId=rec-srv-${Date.now() + 1000}&recorderCode=RECCODE1`, analysisAvailable: false, analysisData: null, recorderAccessCode: "RECCODE1" },
-                { id: `sm-server-${Date.now() + 2000}`, userId, title: 'Project Phoenix Kickoff (Server)', date: new Date(Date.now() - 86400000 * 5).toISOString(), clientEmail: 'phoenix.lead@example.com', status: 'Completed', notes: 'Kickoff meeting for Project Phoenix.', clientCode: 'D4E5F6', recordingId: `rec-srv-${Date.now() + 2000}`, recorderLink: `recorder.html?recordingId=rec-srv-${Date.now() + 2000}&recorderCode=RECCODE2`, analysisAvailable: true, analysisData: { summary: "<p>Successful kickoff for Project Phoenix. Key stakeholders aligned.</p>", transcript: "[00:00:00] Welcome to Project Phoenix...", keyPoints: "<li>Finalize budget</li>", actionItems: "<ol><li>PM to create project plan</li></ol>", questions: "<ul><li>What is the hard deadline?</li></ul>", sentiment: "<p>Very Positive</p>"}, recorderAccessCode: "RECCODE2"}
-            ];
-            res.status(200).json(simulatedMeetings);
-            // --- END SIMULATED GET ---
+            
+            // If you don't have a GSI on userId, you'd have to use Scan + FilterExpression,
+            // which is less performant on large tables.
+            // const params = {
+            //     TableName: MEETINGS_TABLE_NAME,
+            //     FilterExpression: "userId = :uid",
+            //     ExpressionAttributeValues: { ":uid": userId }
+            // };
+            // const { Items: userMeetings } = await docClient.send(new ScanCommand(params));
+            
+            const { Items: userMeetings } = await docClient.send(new QueryCommand(params));
+            
+            // DynamoDB Query with ScanIndexForward: false on a date sort key should return them sorted.
+            // If not, or if using Scan, sort here:
+            // if (userMeetings) {
+            //     userMeetings.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            // }
+            
+            console.log(`API: Fetched ${userMeetings ? userMeetings.length : 0} meetings for user ${userId}`);
+            res.status(200).json(userMeetings || []);
 
         } catch (error) {
             console.error('API Error fetching meetings:', error);
@@ -64,42 +68,47 @@ export default async function handler(req, res) {
         try {
             const { title, date, clientEmail, notes } = req.body;
 
+            // Basic Input Validation
             if (!title || !date || !clientEmail) {
                 return res.status(400).json({ success: false, message: 'Title, date, and clientEmail are required.' });
             }
+            if (isNaN(new Date(date).getTime())) {
+                return res.status(400).json({ success: false, message: 'Invalid date format for meeting.' });
+            }
+            if (!/\S+@\S+\.\S+/.test(clientEmail)) {
+                return res.status(400).json({ success: false, message: 'Invalid client email format.' });
+            }
 
-            const meetingId = `sm-server-${Date.now()}`; 
-            const recordingId = `rec-server-${Date.now()}`; 
+            const meetingId = `sm-${uuidv4()}`; 
+            const recordingId = `rec-${uuidv4()}`; 
             const clientCode = Math.random().toString(36).substring(2, 8).toUpperCase();
             const recorderAccessCode = Math.random().toString(36).substring(2, 10).toUpperCase();
             const recorderLink = `recorder.html?recordingId=${recordingId}&recorderCode=${recorderAccessCode}`;
 
             const newMeeting = {
-                id: meetingId,
+                id: meetingId, 
                 userId, 
-                title, date, clientEmail,
-                notes: notes || '',
-                status: 'Scheduled', clientCode, recordingId, recorderLink, 
+                title: title.trim(),
+                date, 
+                clientEmail: clientEmail.trim(),
+                notes: notes ? notes.trim() : '',
+                status: 'Scheduled',
+                clientCode,
+                recordingId, 
+                recorderLink, 
                 recorderAccessCode, 
-                analysisAvailable: false, analysisData: null,
+                analysisAvailable: false,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
 
-            // --- PRODUCTION: Store newMeeting in DynamoDB ---
-            /*
-            const params = {
+            const putParams = {
                 TableName: MEETINGS_TABLE_NAME,
                 Item: newMeeting
             };
-            await dynamoDb.put(params).promise();
-            res.status(201).json(newMeeting);
-            */
-
-            // --- SIMULATED POST ---
-            console.log('API: POST /api/meetings creating (simulated):', newMeeting);
-            res.status(201).json(newMeeting);
-            // --- END SIMULATED POST ---
+            await docClient.send(new PutCommand(putParams));
+            console.log(`API: Meeting ${meetingId} created for user ${userId} with linked recordingId ${recordingId}`);
+            res.status(201).json(newMeeting); 
 
         } catch (error) {
             console.error('API Error creating meeting:', error);

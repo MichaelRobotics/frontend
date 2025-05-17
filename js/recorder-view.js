@@ -1,20 +1,22 @@
 // /js/recorder-view.js
 const RecorderView = (() => {
     let meetings = []; // Local cache, fetched from backend via SharedAppLogic
+    
+    // Callbacks from SharedAppLogic
     let showNotificationCallback;
     let switchViewCallback;
     let setButtonLoadingStateCallback;
-    let getMeetingByIdCallback; // From SharedAppLogic (searches local cache)
-    let updateMeetingCallback;  // From SharedAppLogic (calls API)
-    let addMeetingCallback;     // From SharedAppLogic (calls API, for new ad-hoc if needed)
-    let fetchMeetingsAPI;       // From SharedAppLogic
+    let getMeetingByIdCallback; 
+    let updateMeetingCallback;  
+    let addMeetingCallback;     
+    let fetchMeetingsAPI;       
     let uploadRecordingAPI;
     let fetchAnalysisStatusAPI;
     let fetchAnalysisDataAPI;
-    let downloadAnalysisPdfAPI;
-    let generateIdCallback; // From SharedAppLogic
+    let downloadAnalysisPdfAPI; 
+    let generateIdCallback;     
 
-    let currentRecorderMeeting = null;
+    let currentRecorderMeeting = null; 
     let isRecording = false, isPaused = false, recordingStartTime, accumulatedPausedTime = 0, pauseStartTime, timerInterval, pollingInterval;
     let mediaRecorder, audioChunks = [], audioStreamForVisualizer, currentStreamTracks = [];
     let audioContext, analyser, visualizerFrameId;
@@ -27,7 +29,7 @@ const RecorderView = (() => {
     let backToListBtnRec, logoutBtnRec, mainMenuBtnRec, downloadTranscriptBtnRec, downloadPdfBtnRec;
 
     function getHTML() {
-        // HTML structure remains the same as in recorder_view_js_updated_pdf (with PDF button already added)
+        // HTML structure includes the "Download PDF Report" button in the analysis view
         return `
         <header class="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-xl sticky top-0 z-40">
             <div class="container mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center">
@@ -187,14 +189,15 @@ const RecorderView = (() => {
     async function refreshMeetingsForRecorder() {
         try {
             if (noMeetingsMessageRec) noMeetingsMessageRec.textContent = "Fetching meetings...";
-            meetings = await fetchMeetingsAPI(); // Use the API callback
+            meetings = await fetchMeetingsAPI(); 
             renderRecorderMeetingList();
-             if (noMeetingsMessageRec && meetings.filter(m => m.status === 'Scheduled' || m.recorderId).length === 0) { // Adjust filter for recorder
+             if (noMeetingsMessageRec && meetings.filter(m => m.status === 'Scheduled' || m.recorderId).length === 0) {
                 noMeetingsMessageRec.textContent = 'No meetings found or scheduled for recording.';
+            } else if (noMeetingsMessageRec) {
+                noMeetingsMessageRec.classList.add('hidden');
             }
         } catch (error) {
-            showNotificationCallback("Could not load meetings for recorder. Please try again later.", "error");
-            if (noMeetingsMessageRec) noMeetingsMessageRec.textContent = "Could not load meetings.";
+            if (noMeetingsMessageRec) noMeetingsMessageRec.textContent = "Could not load meetings. Please try refreshing.";
         }
     }
 
@@ -210,31 +213,32 @@ const RecorderView = (() => {
         }
 
         if(backToListBtnRec) { 
-            backToListBtnRec.addEventListener('click', () => {
+            backToListBtnRec.addEventListener('click', async () => { // Made async
                 if(isRecording && !confirm("Recording is in progress. Are you sure you want to stop and go back to the list? The current recording will be processed.")) {
                     return;
                 }
                 if(isRecording) {
-                    stopActualRecording(false); 
-                } else {
-                    refreshMeetingsForRecorder(); // Refresh list before showing
-                    showRecorderView('list');
+                    await stopActualRecording(false); // Wait for stop to complete
                 }
+                // After stop (or if not recording), refresh and show list
+                await refreshMeetingsForRecorder(); 
+                showRecorderView('list');
             });
         }
         if(mainMenuBtnRec) { 
-            mainMenuBtnRec.addEventListener('click', () => {
+            mainMenuBtnRec.addEventListener('click', async () => { // Made async
                  if(isRecording && !confirm("Recording is in progress. Stop and go to App Dashboard?")) return;
-                 if(isRecording) stopActualRecording(false);
+                 if(isRecording) await stopActualRecording(false);
                 switchViewCallback('index'); 
             });
         }
         if(logoutBtnRec) { 
-            logoutBtnRec.addEventListener('click', () => {
+            logoutBtnRec.addEventListener('click', async () => { // Made async
                 if(isRecording && !confirm("Recording is in progress. Stop and logout?")) return;
-                if(isRecording) stopActualRecording(false);
-                showNotificationCallback("Exited Recorder Role.", "info");
-                switchViewCallback('index'); 
+                if(isRecording) await stopActualRecording(false);
+                await SharedAppLogic.logoutAPI(); // Call shared logout
+                showNotificationCallback("Logged out. Redirecting...", "info");
+                switchViewCallback('index'); // This should ideally be window.location.href = 'landing-page.html'
             });
         }
 
@@ -270,15 +274,13 @@ const RecorderView = (() => {
         }
 
         if (downloadPdfBtnRec) {
-            downloadPdfBtnRec.addEventListener('click', async () => { // Made async
+            downloadPdfBtnRec.addEventListener('click', async () => { 
                 if (currentRecorderMeeting && currentRecorderMeeting.status === 'completed' && currentRecorderMeeting.recorderId) {
                     try {
                         setButtonLoadingStateCallback(downloadPdfBtnRec, true);
-                        await downloadAnalysisPdfAPI(currentRecorderMeeting.recorderId);
-                        // Success/error notification handled by downloadAnalysisPdfAPI in SharedAppLogic
+                        await downloadAnalysisPdfAPI(currentRecorderMeeting.recorderId); 
                     } catch (error) {
-                        // Error notification already shown by SharedAppLogic
-                        console.error("PDF download failed in RecorderView:", error);
+                        console.error("Recorder PDF Download trigger failed:", error);
                     } finally {
                         setButtonLoadingStateCallback(downloadPdfBtnRec, false);
                     }
@@ -289,20 +291,18 @@ const RecorderView = (() => {
         }
     }
 
-    async function handleAudioInputChange() { // Made async
+    async function handleAudioInputChange() { 
         if (isRecording) {
             if (confirm("Changing the microphone will stop the current recording segment and start a new one. Continue?")) {
                 showNotificationCallback("Stopping current segment to switch microphone...", "info");
-                await stopActualRecording(false); // Ensure this completes if it has async parts (it calls onstop which is async)
+                await stopActualRecording(false); 
                 
-                // Wait for isRecording to be false, indicating stop is complete
-                // This is a simple polling mechanism, might need refinement for robustness
                 let attempts = 0;
-                while(isRecording && attempts < 50) { // Max 5 seconds wait
+                while(isRecording && attempts < 50) { 
                     await new Promise(resolve => setTimeout(resolve, 100));
                     attempts++;
                 }
-                if(isRecording) { // If still recording, something went wrong with stop
+                if(isRecording) { 
                     showNotificationCallback("Failed to stop previous segment. Cannot switch microphone now.", "error");
                     return;
                 }
@@ -313,31 +313,25 @@ const RecorderView = (() => {
                 const originalMeetingIdForNewSegment = currentRecorderMeeting ? currentRecorderMeeting.originalMeetingId : null;
                 const clientEmailForNewSegment = currentRecorderMeeting ? currentRecorderMeeting.clientEmail : null;
 
-
-                // Prepare a new meeting object for the new segment, using a NEW recorderId for this segment
                 const newSegmentRecorderId = `rec-segment-${generateIdCallback(8)}`;
                 currentRecorderMeeting = { 
-                    id: newSegmentRecorderId, // This ID will be used for the new recording segment
+                    id: newSegmentRecorderId, 
                     recorderId: newSegmentRecorderId,
-                    title: `${previousTitle.replace(/ \(Segment .*\)/, '')} (Segment ${Math.floor(Math.random()*100)})`, // Avoid nested segment titles
-                    date: new Date().toISOString(), // New date for this segment
+                    title: `${previousTitle.replace(/ \(Segment .*\)/, '')} (Segment ${Math.floor(Math.random()*100)})`,
+                    date: new Date().toISOString(), 
                     status: 'pending_start',
                     analysisAvailable: false,
                     clientEmail: clientEmailForNewSegment, 
                     notes: previousNotes,
-                    originalMeetingId: originalMeetingIdForNewSegment, // Link back to original if it was a scheduled meeting
+                    originalMeetingId: originalMeetingIdForNewSegment, 
                     audioQuality: audioQualitySelectElemRec ? audioQualitySelectElemRec.value : 'medium',
                 };
                 if(meetingTitleInputElemRec) meetingTitleInputElemRec.value = currentRecorderMeeting.title;
                 if(meetingNotesElemRec) meetingNotesElemRec.value = currentRecorderMeeting.notes;
                 if(recordingMeetingTitleElemRec) recordingMeetingTitleElemRec.textContent = `Recording: ${currentRecorderMeeting.title}`;
                 
-                // It's crucial that this new ad-hoc-like segment is also known to the backend
-                // or that the upload uses this new ID which the backend then creates a record for.
-                // For simplicity, we assume startActualRecording will handle creating/updating the record via API.
                 await startActualRecording(); 
             } else {
-                // User cancelled, try to revert selection (difficult with standard select, user must re-select)
                 showNotificationCallback("Microphone change cancelled. Previous device remains active if recording is restarted.", "info");
             }
         } else {
@@ -350,8 +344,8 @@ const RecorderView = (() => {
             showNotificationCallback("A recording is already in progress.", "warning");
             return; 
         }
-        if (!currentRecorderMeeting) { 
-            showNotificationCallback("No meeting selected or prepared for recording.", "error");
+        if (!currentRecorderMeeting || !currentRecorderMeeting.recorderId) { // Ensure recorderId is set
+            showNotificationCallback("No meeting selected or recorder ID missing.", "error");
             return; 
         }
 
@@ -401,20 +395,16 @@ const RecorderView = (() => {
             if(meetingTitleInputElemRec) currentRecorderMeeting.title = meetingTitleInputElemRec.value.trim() || currentRecorderMeeting.title || "Untitled Recording";
             if(meetingNotesElemRec) currentRecorderMeeting.notes = meetingNotesElemRec.value.trim();
             
-            // If it's a new ad-hoc segment (ID might not be in shared meetingsData yet),
-            // ensure it's added or updated.
             const existingMeeting = getMeetingByIdCallback(currentRecorderMeeting.recorderId);
             if (existingMeeting) {
                 await updateMeetingCallback(currentRecorderMeeting); 
             } else {
-                // If addMeetingCallback is available and distinct from update for new records
-                if (typeof addMeetingCallback === 'function') {
+                if (typeof addMeetingCallback === 'function') { 
                     await addMeetingCallback(currentRecorderMeeting);
-                } else { // Fallback to update which might handle upsert
+                } else { 
                     await updateMeetingCallback(currentRecorderMeeting);
                 }
             }
-            // No need to call saveMeetingsCallback() directly, update/add handles persistence via API.
             await refreshMeetingsForRecorder(); 
             updateRecorderRecordingUI();
             if(timerInterval) clearInterval(timerInterval);
@@ -433,10 +423,10 @@ const RecorderView = (() => {
         }
     }
     
-    async function handleActualRecordingStop() { // Made async
+    async function handleActualRecordingStop() { 
         handleMediaRecorderCleanup();
-        if (!currentRecorderMeeting) {
-            console.error("currentRecorderMeeting is null in onstop handler");
+        if (!currentRecorderMeeting || !currentRecorderMeeting.recorderId) {
+            console.error("currentRecorderMeeting or its recorderId is null in onstop handler");
             if(stopBtnElemRec) setButtonLoadingStateCallback(stopBtnElemRec, false);
             showRecorderView('list');
             return;
@@ -446,33 +436,34 @@ const RecorderView = (() => {
         audioChunks = []; 
 
         currentRecorderMeeting.duration = formatDurationRec(Date.now() - recordingStartTime - accumulatedPausedTime);
-        currentRecorderMeeting.status = 'uploading_to_backend'; // New status
+        currentRecorderMeeting.status = 'uploading_to_backend'; 
         currentRecorderMeeting.size = audioBlob.size > 0 ? `${(audioBlob.size / (1024*1024)).toFixed(2)}MB` : '0MB';
-        // currentRecorderMeeting.audioBlob = audioBlob; // Don't store large blob in state if uploading
-
+        
         try {
-            await updateMeetingCallback(currentRecorderMeeting); // Update status before upload
+            await updateMeetingCallback(currentRecorderMeeting); 
             await refreshMeetingsForRecorder(); 
             showNotificationCallback("Recording stopped. Uploading to server...", "info");
 
             const formData = new FormData();
-            formData.append('audioFile', audioBlob, `${currentRecorderMeeting.recorderId || 'recording'}.webm`);
+            formData.append('audioFile', audioBlob, `${currentRecorderMeeting.recorderId}.webm`);
             formData.append('notes', currentRecorderMeeting.notes || '');
             formData.append('quality', currentRecorderMeeting.audioQuality || 'medium');
             formData.append('title', currentRecorderMeeting.title || 'Untitled Recording');
-            if (currentRecorderMeeting.originalMeetingId) {
+            if (currentRecorderMeeting.originalMeetingId) { 
                 formData.append('originalMeetingId', currentRecorderMeeting.originalMeetingId);
             }
             
-            // Use the recordingId (which is currentRecorderMeeting.id or currentRecorderMeeting.recorderId)
             const uploadResponse = await uploadRecordingAPI(currentRecorderMeeting.recorderId, formData);
 
             if (uploadResponse && uploadResponse.success) {
-                currentRecorderMeeting.status = 'processing'; // From backend response
-                currentRecorderMeeting.backendRecordingId = uploadResponse.recordingId; // If backend returns a canonical ID
+                currentRecorderMeeting.status = uploadResponse.status || 'processing'; // Use status from backend
+                // If backend confirms/returns a canonical recordingId different from what was sent (e.g. for ad-hoc)
+                currentRecorderMeeting.id = uploadResponse.recordingId || currentRecorderMeeting.id; 
+                currentRecorderMeeting.recorderId = uploadResponse.recordingId || currentRecorderMeeting.recorderId;
+
                 await updateMeetingCallback(currentRecorderMeeting);
                 showNotificationCallback("Upload complete. Analysis started by backend.", "success");
-                initiateRecorderAnalysis(currentRecorderMeeting); // This will now poll
+                initiateRecorderAnalysis(currentRecorderMeeting); 
             } else {
                 throw new Error(uploadResponse.message || "Upload to backend failed.");
             }
@@ -486,8 +477,8 @@ const RecorderView = (() => {
         }
     }
     
-    async function initiateRecorderAnalysis(meeting) { // Made async for polling
-        if (!analysisMeetingTitleElemRec || !analysisViewRec) {
+    async function initiateRecorderAnalysis(meeting) { 
+        if (!analysisMeetingTitleElemRec || !analysisViewRec || !meeting || !meeting.recorderId) {
             showRecorderView('list'); 
             return; 
         }
@@ -502,12 +493,12 @@ const RecorderView = (() => {
         analysisProgressPercentageElemRec.textContent = '0%';
         analysisStatusTextElemRec.textContent = 'Checking analysis status...';
 
-        if (pollingInterval) clearInterval(pollingInterval); // Clear any existing polling
+        if (pollingInterval) clearInterval(pollingInterval); 
 
         async function pollStatus() {
             try {
-                const statusResult = await fetchAnalysisStatusAPI(meeting.recorderId); // Use recorderId
-                if (!statusResult || !statusResult.success) { // Check for success flag from API
+                const statusResult = await fetchAnalysisStatusAPI(meeting.recorderId); 
+                if (!statusResult || !statusResult.success) { 
                     throw new Error(statusResult.message || "Failed to get status update.");
                 }
 
@@ -519,12 +510,11 @@ const RecorderView = (() => {
                 if (statusResult.status === 'completed') {
                     clearInterval(pollingInterval);
                     analysisStatusTextElemRec.textContent = 'Analysis Complete! Fetching results...';
-                    const analysisData = await fetchAnalysisDataAPI(meeting.recorderId); // Use recorderId
+                    const analysisData = await fetchAnalysisDataAPI(meeting.recorderId); 
                     if (analysisData) {
-                        meeting.analysisData = analysisData;
+                        meeting.analysisData = analysisData; 
                         meeting.status = 'completed';
-                        await updateMeetingCallback(meeting); // Update meeting with fetched analysis
-                        // saveMeetingsCallback(); // Not needed if updateMeetingCallback persists
+                        await updateMeetingCallback(meeting); 
                         
                         if(analysisPanelsElemsRec.summary) analysisPanelsElemsRec.summary.innerHTML = analysisData.summary || "<p>Summary not available.</p>";
                         if(analysisPanelsElemsRec.transcript) analysisPanelsElemsRec.transcript.innerHTML = analysisData.transcript || "<p>Transcript not available.</p>";
@@ -544,27 +534,26 @@ const RecorderView = (() => {
                 } else if (statusResult.status === 'failed') {
                     clearInterval(pollingInterval);
                     analysisStatusTextElemRec.textContent = `Analysis Failed: ${statusResult.error_message || 'Unknown error'}`;
-                    analysisProgressBarElemRec.style.backgroundColor = 'var(--red-500)'; // Error color
+                    analysisProgressBarElemRec.style.backgroundColor = 'var(--red-500)'; 
                     meeting.status = 'failed';
                     await updateMeetingCallback(meeting);
                 }
-                // Continue polling if still processing and not failed
             } catch (error) {
                 console.error("Error polling analysis status:", error);
                 analysisStatusTextElemRec.textContent = `Error updating status: ${error.message}`;
-                clearInterval(pollingInterval); // Stop polling on error
-                meeting.status = 'status_check_error'; // Indicate an issue
+                clearInterval(pollingInterval); 
+                meeting.status = 'status_check_error'; 
                 try { await updateMeetingCallback(meeting); } catch(e) {console.error("Failed to update status on poll error", e);}
             }
         }
-        pollStatus(); // Initial call
-        pollingInterval = setInterval(pollStatus, 7000); // Poll every 7 seconds
+        pollStatus(); 
+        pollingInterval = setInterval(pollStatus, 7000); 
     }
     
     async function handleViewRecorderAnalysis(recorderId) { 
-        let meetingToAnalyze = getMeetingByIdCallback(recorderId); // Check local cache first
+        let meetingToAnalyze = getMeetingByIdCallback(recorderId); 
 
-        if (!meetingToAnalyze) { // If not in cache, try fetching all meetings again
+        if (!meetingToAnalyze) { 
             await refreshMeetingsForRecorder();
             meetingToAnalyze = getMeetingByIdCallback(recorderId);
         }
@@ -574,7 +563,7 @@ const RecorderView = (() => {
             return;
         }
         
-        currentRecorderMeeting = meetingToAnalyze; // Set for PDF download context
+        currentRecorderMeeting = meetingToAnalyze; 
 
         if (meetingToAnalyze.status === 'completed' && meetingToAnalyze.analysisData) {
             analysisMeetingTitleElemRec.textContent = `Analysis for: ${meetingToAnalyze.title}`;
@@ -594,61 +583,190 @@ const RecorderView = (() => {
             
             showRecorderView('analysis');
         } else if (meetingToAnalyze.status === 'processing' || (meetingToAnalyze.status === 'completed' && !meetingToAnalyze.analysisData) ) {
-            // If processing, or completed but data somehow missing, initiate/re-initiate polling
             showNotificationCallback("Analysis is processing or data needs to be fetched. Please wait.", "info");
-            initiateRecorderAnalysis(meetingToAnalyze); // This will show progress and fetch if needed
+            initiateRecorderAnalysis(meetingToAnalyze); 
         } else {
-            showNotificationCallback("Analysis not yet available or meeting status is not completed.", "warning");
+            showNotificationCallback("Analysis not yet available or meeting status is not 'completed' or 'processing'.", "warning");
+        }
+    }
+    
+    function handleDownloadRecorderPdf(meeting) { 
+        if (!meeting || !meeting.analysisData) {
+            showNotificationCallback("Cannot generate PDF: Missing meeting or analysis data.", "error");
+            return;
+        }
+        // This uses the client-side HTML generation for PDF as per previous implementation
+        // If backend PDF generation is preferred for Recorder, this would call downloadAnalysisPdfAPI
+        let reportHtml = `
+            <html><head><title>Recording Analysis Report: ${meeting.title}</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; color: #333; }
+                h1 { color: #1e3a8a; border-bottom: 2px solid #d0e9fd; padding-bottom: 5px;}
+                h2 { color: #1e40af; margin-top: 30px; border-bottom: 1px solid #e0f2fe; padding-bottom: 3px;}
+                .section { margin-bottom: 25px; padding: 15px; border: 1px solid #d0e9fd; border-radius: 8px; background-color: #f7faff; }
+                .meta-info p { font-size: 0.9em; color: #555; margin-bottom: 3px;}
+                strong { color: #1e40af; }
+                pre { background-color: #f0f2f5; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
+            </style>
+            </head><body><h1>Recording Analysis Report</h1>
+            <div class="meta-info section">
+                <p><strong>Title:</strong> ${meeting.title}</p>
+                <p><strong>Recorded Date:</strong> ${new Date(meeting.startTimeActual || meeting.date).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })}</p>
+                <p><strong>Duration:</strong> ${meeting.duration || 'N/A'}</p>
+                <p><strong>Audio Quality Setting:</strong> ${meeting.audioQuality || 'N/A'}</p>
+                <p><strong>File Size:</strong> ${meeting.size || 'N/A'}</p>
+            </div>
+            ${meeting.analysisData.summary ? `<div class="section"><h2>Summary</h2>${meeting.analysisData.summary}</div>` : ''}
+            ${meeting.analysisData.transcript ? `<div class="section"><h2>Transcript</h2><pre>${meeting.analysisData.transcript.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre></div>` : ''}
+            <script> /* setTimeout(() => { alert("Please use your browser\\'s \\'Print\\' function (Ctrl+P or Cmd+P) and select \\'Save as PDF\\'."); }, 500); */ <\/script>
+            </body></html>`;
+        const reportWindow = window.open('', '_blank');
+        if (reportWindow) {
+            reportWindow.document.open(); reportWindow.document.write(reportHtml); reportWindow.document.close(); reportWindow.focus();
+            showNotificationCallback("Report opened in new tab. Use browser's Print to PDF.", "info");
+        } else {
+            showNotificationCallback("Could not open new window. Please check your pop-up blocker.", "error");
+        }
+    }
+    function updateRecorderRecordingUI() { 
+        if (!recordingIndicatorElemRec || !recordingStatusTextElemRec || !pauseResumeBtnElemRec) return;
+        recordingIndicatorElemRec.className = `w-3.5 h-3.5 rounded-full mr-2.5 ${isPaused ? 'bg-yellow-500 animate-none' : 'bg-red-500 status-recording'}`;
+        recordingStatusTextElemRec.textContent = isPaused ? "Paused" : "Recording...";
+        const pauseResumeText = pauseResumeBtnElemRec.querySelector('.button-text');
+        if (pauseResumeText) { pauseResumeText.innerHTML = isPaused ? '<i class="fas fa-play mr-2 icon-hover"></i>Resume' : '<i class="fas fa-pause mr-2 icon-hover"></i>Pause';}
+    }
+    function updateRecorderTimer() { 
+        if (!isRecording || isPaused || !recordingTimeDisplayElemRec) return;
+        const elapsed = Date.now() - recordingStartTime - accumulatedPausedTime;
+        recordingTimeDisplayElemRec.textContent = formatDurationRec(elapsed);
+        if(recordingProgressElemRec) recordingProgressElemRec.style.width = `${Math.min(100, (elapsed / (3600000 * 2)) * 100)}%`;
+    }
+    function formatDurationRec(ms) { 
+        const s = Math.floor((ms/1000) % 60); const m = Math.floor((ms/(1000*60)) % 60); const h = Math.floor((ms/(1000*60*60)) % 24);
+        return [h,m,s].map(v => String(v).padStart(2,'0')).join(':');
+    }
+    function handlePauseResumeRec() { 
+        if (!mediaRecorder) return;
+        if(isPaused) { mediaRecorder.resume(); accumulatedPausedTime += Date.now() - pauseStartTime; isPaused = false; if(timerInterval) clearInterval(timerInterval); timerInterval = setInterval(updateRecorderTimer, 1000); if(audioStreamForVisualizer) setupAudioVisualizerRec(audioStreamForVisualizer); showNotificationCallback("Recording Resumed.", "info");
+        } else { mediaRecorder.pause(); isPaused = true; pauseStartTime = Date.now(); clearInterval(timerInterval); stopAudioVisualizerRec(); showNotificationCallback("Recording Paused.", "info");}
+        updateRecorderRecordingUI();
+    }
+    function stopActualRecording(errorOccurred = false) { 
+        if (!isRecording && !errorOccurred) return; 
+        if (isRecording && stopBtnElemRec) setButtonLoadingStateCallback(stopBtnElemRec, true);
+        if (mediaRecorder && mediaRecorder.state !== "inactive") { mediaRecorder.stop(); } 
+        else { if (errorOccurred) { showNotificationCallback("Recording stopped due to an error.", "error");} handleMediaRecorderCleanup(); if(stopBtnElemRec) setButtonLoadingStateCallback(stopBtnElemRec, false); if (!errorOccurred) { showRecorderView('list'); }}
+        isRecording = false; 
+    }
+    function handleMediaRecorderCleanup() { 
+        clearInterval(timerInterval); stopAudioVisualizerRec();
+        if (currentStreamTracks.length > 0) { 
+            currentStreamTracks.forEach(track => track.stop()); 
+            currentStreamTracks = []; 
+        }
+        if (audioStreamForVisualizer) { 
+             audioStreamForVisualizer.getTracks().forEach(track => track.stop());
+             audioStreamForVisualizer = null;
+        }
+        mediaRecorder = null; 
+    }
+    function setupAudioVisualizerRec(stream) { 
+        if (!audioVisualizerCanvasElemRec) return;
+        try {
+            if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioContext.state === 'suspended') { audioContext.resume(); }
+            if (analyser) analyser.disconnect(); 
+            analyser = audioContext.createAnalyser();
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+            analyser.fftSize = 256; 
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            const canvasCtx = audioVisualizerCanvasElemRec.getContext('2d');
+            audioVisualizerCanvasElemRec.width = audioVisualizerCanvasElemRec.offsetWidth;
+            audioVisualizerCanvasElemRec.height = audioVisualizerCanvasElemRec.offsetHeight;
+            function draw() {
+                if (!isRecording || isPaused) { stopAudioVisualizerRec(); return; }
+                visualizerFrameId = requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
+                canvasCtx.fillStyle = '#e0f2fe'; 
+                canvasCtx.fillRect(0, 0, audioVisualizerCanvasElemRec.width, audioVisualizerCanvasElemRec.height);
+                const barWidth = (audioVisualizerCanvasElemRec.width / bufferLength) * 2.0; 
+                let x = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const barHeight = dataArray[i] / 2.8; 
+                    canvasCtx.fillStyle = `rgba(37, 99, 235, ${Math.max(0.2, barHeight / 100)})`; 
+                    canvasCtx.fillRect(x, audioVisualizerCanvasElemRec.height - barHeight, barWidth, barHeight);
+                    x += barWidth + 1; 
+                }
+            }
+            draw();
+        } catch (e) { console.error("Error setting up audio visualizer:", e); showNotificationCallback("Could not start audio visualizer.", "warning");}
+    }
+    function stopAudioVisualizerRec() { 
+        if (visualizerFrameId) cancelAnimationFrame(visualizerFrameId); visualizerFrameId = null;
+        if(audioVisualizerCanvasElemRec && audioVisualizerCanvasElemRec.getContext) {
+            const canvasCtx = audioVisualizerCanvasElemRec.getContext('2d');
+            canvasCtx.fillStyle = '#e0f2fe'; 
+            canvasCtx.fillRect(0, 0, audioVisualizerCanvasElemRec.width, audioVisualizerCanvasElemRec.height);
         }
     }
     function handleDeepLink(urlRecorderId, urlRecorderCode) { 
-        // Assuming SharedAppLogic.fetchMeetings() has been called and meetings are populated
-        const meeting = meetings.find(m => m.recorderId === urlRecorderId);
+        // This function assumes 'meetings' (the shared cache) is populated by refreshMeetingsForRecorder
+        const meeting = meetings.find(m => m.recorderId === urlRecorderId); // Find by recorderId
         if (meeting && meeting.recorderAccessCode === urlRecorderCode) { 
             showNotificationCallback(`Accessing scheduled recording via link: ${meeting.title}`, "info");
-            // This should set currentRecorderMeeting and start the recording flow
-            handleStartScheduledRecording(meeting.id); // Use original sales meeting ID to start
+            // handleStartScheduledRecording expects the original salesperson meeting ID
+            handleStartScheduledRecording(meeting.id); 
         } else if (meeting) {
             showNotificationCallback(`Invalid recorder code for meeting: ${meeting.title}`, "warning");
-            renderRecorderMeetingList(); showRecorderView('list');
+            refreshMeetingsForRecorder(); showRecorderView('list');
         } else {
-            showNotificationCallback(`Meeting with Recorder ID ${urlRecorderId} not found.`, "error");
-            renderRecorderMeetingList(); showRecorderView('list');
+            showNotificationCallback(`Meeting with Recorder ID ${urlRecorderId} not found. Refreshing list...`, "info");
+            refreshMeetingsForRecorder().then(() => { // Try refreshing then check again
+                const refreshedMeeting = meetings.find(m => m.recorderId === urlRecorderId);
+                if (refreshedMeeting && refreshedMeeting.recorderAccessCode === urlRecorderCode) {
+                     showNotificationCallback(`Accessing scheduled recording via link: ${refreshedMeeting.title}`, "info");
+                     handleStartScheduledRecording(refreshedMeeting.id);
+                } else {
+                    showNotificationCallback(`Meeting with Recorder ID ${urlRecorderId} still not found or code invalid after refresh.`, "error");
+                    showRecorderView('list');
+                }
+            });
         }
     }
 
+
     return {
         init: (
-            // meetingsArr, // No longer pass initial meetings, fetch them
-            notifyCb, switchCb, 
+            _notifyCb, _switchCb, 
             _setLoadStateCb, 
             _getMeetingByIdCb, _updateMeetingCb, _addMeetingCb,
-            _fetchMeetingsAPI, _uploadRecordingAPI, 
-            _fetchAnalysisStatusAPI, _fetchAnalysisDataAPI, _downloadAnalysisPdfAPI,
-            _generateIdCb
+            _fetchMeetings, _uploadRecording, 
+            _fetchAnalysisStatus, _fetchAnalysis, _downloadPdf,
+            _generateId
         ) => {
-            // Store all API callbacks
-            showNotificationCallback = notifyCb;
-            switchViewCallback = switchCb;
+            showNotificationCallback = _notifyCb;
+            switchViewCallback = _switchCb;
             setButtonLoadingStateCallback = _setLoadStateCb;
             getMeetingByIdCallback = _getMeetingByIdCb;
             updateMeetingCallback = _updateMeetingCb;
-            addMeetingCallback = _addMeetingCb; // For ad-hoc potentially
-            fetchMeetingsAPI = _fetchMeetingsAPI;
-            uploadRecordingAPI = _uploadRecordingAPI;
-            fetchAnalysisStatusAPI = _fetchAnalysisStatusAPI;
-            fetchAnalysisDataAPI = _fetchAnalysisDataAPI;
-            downloadAnalysisPdfAPI = _downloadAnalysisPdfAPI;
-            generateIdCallback = _generateIdCb;
+            addMeetingCallback = _addMeetingCb;
+            fetchMeetingsAPI = _fetchMeetings;
+            uploadRecordingAPI = _uploadRecording;
+            fetchAnalysisStatusAPI = _fetchAnalysisStatus;
+            fetchAnalysisDataAPI = _fetchAnalysis;
+            downloadAnalysisPdfAPI = _downloadPdf;
+            generateIdCallback = _generateId;
             
             initDOMReferences(); 
             setupEventListeners();
             populateAudioInputDevicesRec();
             
-            refreshMeetingsForRecorder(); // Initial fetch and render
+            refreshMeetingsForRecorder(); 
             showRecorderView('list');
         },
         getHTML,
-        handleDeepLink
+        handleDeepLink 
     };
 })();

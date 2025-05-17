@@ -1,25 +1,32 @@
 // File: /api/auth/login.js
-// Handles POST /api/auth/login
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+// Assuming utils/auth.js is at the same level or configured for module resolution
+// For Vercel, relative paths from the current file are typical:
+// import { authenticateToken } from '../../utils/auth'; // If utils is at /api/utils
 
-// --- Dependencies (Install these via npm/yarn if you use them) ---
-// const bcrypt = require('bcryptjs'); 
-// const jwt = require('jsonwebtoken'); 
-// const AWS = require('aws-sdk'); 
+const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME;
+const JWT_SECRET = process.env.JWT_SECRET;
+const REGION = process.env.MY_AWS_REGION;
 
-// --- AWS SDK Configuration (Set credentials and region via Vercel Environment Variables) ---
-// AWS.config.update({
-//   accessKeyId: process.env.MY_AWS_ACCESS_KEY_ID,
-//   secretAccessKey: process.env.MY_AWS_SECRET_ACCESS_KEY,
-//   region: process.env.MY_AWS_REGION
-// });
-// const dynamoDb = new AWS.DynamoDB.DocumentClient();
-// const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME; 
-// const JWT_SECRET = process.env.JWT_SECRET; 
+if (!USERS_TABLE_NAME || !JWT_SECRET || !REGION) {
+    console.error("FATAL_ERROR: Missing critical environment variables for /api/auth/login.");
+    // This function might still be invoked by Vercel, so handle gracefully.
+}
+
+const ddbClient = new DynamoDBClient({ region: REGION });
+const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         res.setHeader('Allow', ['POST']);
         return res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
+    }
+
+    if (!USERS_TABLE_NAME || !JWT_SECRET) { // Re-check for safety
+        return res.status(500).json({ success: false, message: "Server authentication system not configured." });
     }
 
     try {
@@ -28,59 +35,49 @@ export default async function handler(req, res) {
         if (!email || !password) {
             return res.status(400).json({ success: false, message: 'Email and password are required.' });
         }
+        const lowerCaseEmail = email.toLowerCase().trim();
 
-        // --- PRODUCTION: Implement Database Interaction (e.g., DynamoDB) ---
-        /*
         const params = {
             TableName: USERS_TABLE_NAME,
-            Key: { email: email.toLowerCase() },
+            Key: { email: lowerCaseEmail }, // Assuming email is the Partition Key
         };
-        const { Item: user } = await dynamoDb.get(params).promise();
+        
+        const { Item: user } = await docClient.send(new GetCommand(params));
 
-        if (!user) {
-            return res.status(401).json({ success: false, message: 'Invalid credentials.' });
+        if (!user || !user.hashedPassword) {
+            console.warn(`Login attempt failed: User not found or no password hash for ${lowerCaseEmail}`);
+            return res.status(401).json({ success: false, message: 'Invalid email or password.' });
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.hashedPassword);
         if (!isPasswordValid) {
-            return res.status(401).json({ success: false, message: 'Invalid credentials.' });
+            console.warn(`Login attempt failed: Password mismatch for ${lowerCaseEmail}`);
+            return res.status(401).json({ success: false, message: 'Invalid email or password.' });
         }
 
-        const tokenPayload = { userId: user.id, email: user.email, name: user.name, role: user.role || 'salesperson' };
+        const tokenPayload = { 
+            userId: user.userId, 
+            email: user.email, 
+            name: user.name, 
+            role: user.role || 'salesperson' 
+        };
         const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '1h' }); 
 
+        console.log(`API: User ${user.email} logged in successfully.`);
         res.status(200).json({
             success: true,
             message: "Login successful",
             token: token,
-            user: { id: user.id, name: user.name, email: user.email, role: user.role || 'salesperson' }
+            user: { 
+                id: user.userId, 
+                name: user.name, 
+                email: user.email, 
+                role: user.role || 'salesperson' 
+            }
         });
-        */
-
-        // --- SIMULATED SUCCESSFUL LOGIN ---
-        console.log(`API: Login attempt for: ${email}`);
-        if (email.toLowerCase() === "test@example.com" && password === "password123") {
-            const simulatedUser = { 
-                id: 'user-sim-123', 
-                name: 'Test User', 
-                email: email.toLowerCase(), 
-                role: 'salesperson' 
-            };
-            const simulatedToken = "simulated_jwt_token_for_" + email.toLowerCase(); 
-
-            res.status(200).json({
-                success: true,
-                message: "Login successful (simulated)",
-                token: simulatedToken,
-                user: simulatedUser
-            });
-        } else {
-            return res.status(401).json({ success: false, message: 'Invalid credentials (simulated).' });
-        }
-        // --- END SIMULATED LOGIN ---
 
     } catch (error) {
         console.error('API Login error:', error);
-        res.status(500).json({ success: false, message: 'Internal server error during login.', errorDetails: error.message });
+        res.status(500).json({ success: false, message: 'An internal server error occurred during login.', errorDetails: error.message });
     }
 }

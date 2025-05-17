@@ -1,24 +1,25 @@
 // /js/shared-app-logic.js
 const SharedAppLogic = (() => {
     // --- STATE & CONFIG ---
-    let meetingsData = []; // Acts as a local cache
+    let meetingsDataCache = []; // Local cache of meetings, primarily populated from API
     let authToken = localStorage.getItem('authToken'); // Load token on script init
-    const USER_STORAGE_KEY = 'meetingAnalysisUser'; // For user object from login/register
+    const USER_STORAGE_KEY = 'meetingAnalysisUser'; 
     let currentUser = JSON.parse(localStorage.getItem(USER_STORAGE_KEY)) || null;
 
     let notificationTimeout;
     let appNotificationElement, appNotificationMessage, appNotificationIconContainer, appNotificationCloseButton;
 
-    // --- API Base Path (if needed, otherwise relative paths are fine for same-origin) ---
-    // const API_BASE_URL = ''; // e.g., https://your-app.vercel.app/api if different, or keep empty
+    // --- API Base Path (Leave empty for relative paths if API is on the same origin) ---
+    // const API_BASE_URL = ''; 
 
     // --- UTILITY: HTTP Request Helper ---
-    async function makeApiRequest(endpoint, method = 'GET', body = null, isFormData = false) {
+    async function makeApiRequest(endpoint, method = 'GET', body = null, isFormData = false, isBlobResponse = false) {
         const headers = {};
         if (authToken) {
             headers['Authorization'] = `Bearer ${authToken}`;
         }
-        if (body && !isFormData) {
+        // Content-Type is not set for FormData; browser does it with boundary
+        if (body && !isFormData && method !== 'GET' && method !== 'HEAD') { // GET/HEAD requests cannot have a body
             headers['Content-Type'] = 'application/json';
         }
 
@@ -27,38 +28,49 @@ const SharedAppLogic = (() => {
             headers,
         };
 
-        if (body) {
+        if (body && method !== 'GET' && method !== 'HEAD') {
             config.body = isFormData ? body : JSON.stringify(body);
         }
 
         try {
-            const response = await fetch(`${endpoint}`, config); // API_BASE_URL + endpoint
-            if (response.status === 401) { // Unauthorized
-                clearAuthToken(); // Clear invalid token
-                showGlobalNotification("Session expired or invalid. Please log in again.", "error");
-                // Redirect to login after a delay, allowing notification to be seen
+            const response = await fetch(endpoint, config); // Assumes API endpoints are relative or API_BASE_URL is prepended
+
+            if (response.status === 401) { 
+                clearAuthTokenAndUser(); 
+                showGlobalNotification("Session expired or invalid. Please log in again.", "error", 4000);
                 setTimeout(() => {
                     if (window.location.pathname !== '/landing-page.html' && window.location.pathname !== '/') {
-                         window.location.href = 'landing-page.html'; // Or just '/' if that's your landing
+                         window.location.href = 'landing-page.html'; 
                     }
                 }, 2500);
-                throw new Error("Unauthorized");
+                throw new Error("Unauthorized"); 
             }
+
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ message: `HTTP error! Status: ${response.status}` }));
-                throw new Error(errorData.message || `HTTP error! Status: ${response.status}`);
+                let errorData;
+                try {
+                    errorData = await response.json();
+                } catch (e) {
+                    // If response is not JSON, use status text
+                    errorData = { message: `HTTP error! Status: ${response.status} ${response.statusText}` };
+                }
+                throw new Error(errorData.message || `HTTP error! Status: ${response.status} ${response.statusText}`);
             }
+
             if (response.status === 204) { // No Content
                 return null;
             }
-            return await response.json();
+
+            if (isBlobResponse) { // For PDF download
+                return response; 
+            }
+            return await response.json(); // For all other successful JSON responses
         } catch (error) {
             console.error(`API request to ${method} ${endpoint} failed:`, error);
-            // showGlobalNotification(`API Error: ${error.message}`, "error"); // Already shown for 401
-            if (error.message !== "Unauthorized") { // Avoid double notification for 401
-                 showGlobalNotification(`Network or API Error: ${error.message || 'Could not connect to server.'}`, "error");
+            if (error.message !== "Unauthorized") { 
+                 showGlobalNotification(`API Error: ${error.message || 'Could not connect to server.'}`, "error");
             }
-            throw error; // Re-throw for specific view handling if needed
+            throw error; 
         }
     }
 
@@ -66,16 +78,16 @@ const SharedAppLogic = (() => {
     // --- AUTHENTICATION ---
     async function registerAPI(userData) { // { email, password, name }
         const data = await makeApiRequest('/api/auth/register', 'POST', userData);
-        if (data && data.success && data.token) {
+        if (data && data.success && data.token && data.user) {
             setAuthToken(data.token);
             setCurrentUser(data.user);
         }
-        return data;
+        return data; 
     }
 
     async function loginAPI(credentials) { // { email, password }
         const data = await makeApiRequest('/api/auth/login', 'POST', credentials);
-        if (data && data.success && data.token) {
+        if (data && data.success && data.token && data.user) {
             setAuthToken(data.token);
             setCurrentUser(data.user);
         }
@@ -84,30 +96,31 @@ const SharedAppLogic = (() => {
 
     async function logoutAPI() {
         try {
-            // Call backend logout if it does anything (like token blacklisting)
-            // await makeApiRequest('/api/auth/logout', 'POST');
-            console.log("Logout API called (simulated if no server-side invalidation).");
+            // Call backend logout. Even if it's just for logging, it's good practice.
+            await makeApiRequest('/api/auth/logout', 'POST'); 
+            console.log("Logout API call successful or simulated.");
         } catch (error) {
-            console.warn("Logout API call failed (might be okay if stateless):", error);
+            console.warn("Logout API call failed (might be okay if stateless or already invalid):", error.message);
         } finally {
-            clearAuthToken();
-            setCurrentUser(null);
-            // Frontend should redirect after this
+            clearAuthTokenAndUser(); // Always clear client-side session
         }
     }
     
-    async function checkSessionAPI() { // Corresponds to GET /api/auth/me
-        if (!authToken) return null;
+    async function checkSessionAPI() { 
+        if (!authToken) {
+            clearAuthTokenAndUser(); 
+            return null;
+        }
         try {
-            const data = await makeApiRequest('/api/auth/me', 'GET');
-            if (data && data.user) {
-                setCurrentUser(data.user);
+            const data = await makeApiRequest('/api/auth/me', 'GET'); // Endpoint to verify token and get user
+            if (data && data.success && data.user) {
+                setCurrentUser(data.user); // Refresh user data
                 return data.user;
             }
-            clearAuthToken(); // Token might be invalid
+            clearAuthTokenAndUser(); // Token might be invalid if no user data returned
             return null;
-        } catch (error) {
-            clearAuthToken();
+        } catch (error) { 
+            // makeApiRequest already handles 401 by clearing token
             return null;
         }
     }
@@ -116,14 +129,14 @@ const SharedAppLogic = (() => {
         authToken = token;
         localStorage.setItem('authToken', token);
     }
-    function clearAuthToken() {
+    function clearAuthTokenAndUser() {
         authToken = null;
-        localStorage.removeItem('authToken');
-        localStorage.removeItem(USER_STORAGE_KEY); // Also clear user object
         currentUser = null;
+        localStorage.removeItem('authToken');
+        localStorage.removeItem(USER_STORAGE_KEY); 
     }
     function isAuthenticated() {
-        return !!authToken; // Basic check, could be enhanced by checkSessionAPI
+        return !!localStorage.getItem('authToken'); 
     }
     function setCurrentUser(userData) {
         currentUser = userData;
@@ -134,53 +147,56 @@ const SharedAppLogic = (() => {
         }
     }
     function getCurrentUser() {
-        if (!currentUser) {
-            currentUser = JSON.parse(localStorage.getItem(USER_STORAGE_KEY));
+        if (!currentUser) { 
+            const storedUser = localStorage.getItem(USER_STORAGE_KEY);
+            if (storedUser) {
+                try {
+                    currentUser = JSON.parse(storedUser);
+                } catch (e) {
+                    console.error("Error parsing stored user data:", e);
+                    localStorage.removeItem(USER_STORAGE_KEY); 
+                    currentUser = null;
+                }
+            }
         }
         return currentUser;
     }
 
-
     // --- MEETINGS DATA ---
     async function fetchMeetingsAPI() {
-        try {
-            meetingsData = await makeApiRequest('/api/meetings', 'GET');
-            return meetingsData;
-        } catch (error) {
-            // meetingsData will retain its last successful state or be empty
-            return meetingsData; // Return cached or empty on error
-        }
+        const data = await makeApiRequest('/api/meetings', 'GET');
+        meetingsDataCache = Array.isArray(data) ? data : []; 
+        return meetingsDataCache;
     }
 
-    async function createMeetingAPI(meetingDetails) { // { title, date, clientEmail, notes }
+    async function createMeetingAPI(meetingDetails) { 
         const newMeeting = await makeApiRequest('/api/meetings', 'POST', meetingDetails);
-        // No local meetingsData.push(newMeeting) here; fetchMeetingsAPI should be called to get the source of truth
-        return newMeeting; // Return the created meeting from backend (which includes IDs)
+        // Caller should refresh the list via fetchMeetingsAPI()
+        return newMeeting; 
     }
 
     async function updateMeetingAPI(meetingId, meetingDetails) {
         const updatedMeeting = await makeApiRequest(`/api/meetings/${meetingId}`, 'PUT', meetingDetails);
-        // No local update here; fetchMeetingsAPI should be called
+        // Caller should refresh the list via fetchMeetingsAPI()
         return updatedMeeting;
     }
 
     async function deleteMeetingAPI(meetingId) {
         await makeApiRequest(`/api/meetings/${meetingId}`, 'DELETE');
-        // No local update here; fetchMeetingsAPI should be called
+        // Caller should refresh the list via fetchMeetingsAPI()
         return { success: true, meetingId };
     }
 
-    function getMeetings() { // Returns local cache, ensure it's up-to-date by calling fetchMeetingsAPI
-        return meetingsData;
+    function getMeetings() { 
+        return meetingsDataCache;
     }
 
-    function getMeetingById(id) { // Searches local cache
-        return meetingsData.find(m => m.id === id || m.recorderId === id);
+    function getMeetingById(id) { 
+        return meetingsDataCache.find(m => m.id === id || m.recordingId === id);
     }
 
     // --- RECORDINGS & ANALYSIS DATA ---
-    async function uploadRecordingAPI(recordingId, formData) { // formData includes audioBlob, notes, quality, originalMeetingId
-        // The `recordingId` here is the one for the session (from meeting.recordingId or ad-hoc generated)
+    async function uploadRecordingAPI(recordingId, formData) { 
         return await makeApiRequest(`/api/recordings/${recordingId}/upload`, 'POST', formData, true);
     }
 
@@ -189,9 +205,6 @@ const SharedAppLogic = (() => {
     }
 
     async function fetchAnalysisDataAPI(recordingId) {
-        // This function will now be called by Salesperson, Recorder, and Client views.
-        // The backend endpoint GET /api/recordings/{recordingId}/analysis is responsible
-        // for returning role-specific data if needed.
         return await makeApiRequest(`/api/recordings/${recordingId}/analysis`, 'GET');
     }
 
@@ -200,23 +213,12 @@ const SharedAppLogic = (() => {
     }
 
     async function downloadAnalysisPdfAPI(recordingId) {
-        // This function will initiate a download by navigating or handling a blob response.
-        // The backend endpoint GET /api/recordings/{recordingId}/analysis/pdf streams the PDF.
         try {
-            const response = await fetch(`/api/recordings/${recordingId}/analysis/pdf`, {
-                method: 'GET',
-                headers: getAuthHeader()
-            });
-
-            if (!response.ok) {
-                if (response.status === 401) throw new Error("Unauthorized to download PDF.");
-                const errData = await response.json().catch(() => ({ message: `PDF Download failed: ${response.status}`}));
-                throw new Error(errData.message);
-            }
-
+            const response = await makeApiRequest(`/api/recordings/${recordingId}/analysis/pdf`, 'GET', null, false, true);
+            
             const blob = await response.blob();
             const contentDisposition = response.headers.get('content-disposition');
-            let filename = `analysis_report_${recordingId}.pdf`;
+            let filename = `AnalysisReport_${recordingId}.pdf`; 
             if (contentDisposition) {
                 const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
                 if (filenameMatch && filenameMatch.length === 2)
@@ -232,12 +234,12 @@ const SharedAppLogic = (() => {
             a.click();
             window.URL.revokeObjectURL(url);
             a.remove();
-            showGlobalNotification("PDF download started.", "success");
+            showGlobalNotification("PDF download initiated.", "success");
             return { success: true };
         } catch (error) {
-            console.error("Error downloading PDF:", error);
-            showGlobalNotification(`PDF Download Error: ${error.message}`, "error");
-            throw error;
+            console.error("Error triggering PDF download in SharedAppLogic:", error);
+            // Error notification is likely already handled by makeApiRequest
+            throw error; 
         }
     }
 
@@ -246,17 +248,16 @@ const SharedAppLogic = (() => {
         return await makeApiRequest('/api/client/validate-access', 'POST', { meetingId, clientCode });
     }
 
-
-    // --- UTILITIES (some might be frontend only, some backend generated) ---
-    function generateId(length = 8) { // May still be used for frontend temporary IDs if needed
+    // --- UTILITIES ---
+    function generateId(length = 8) { 
         return Math.random().toString(36).substring(2, 2 + length).toUpperCase();
     }
-    function generateRecorderLink(recordingId, recorderCode) { // Backend now generates this primarily
-        // Frontend might use this for display if link isn't directly from backend meeting object
+    function generateRecorderLink(recordingId, recorderCode) { 
+        // This is primarily for display if the backend doesn't return the full link.
+        // The canonical link should come from the backend meeting object.
         return `recorder.html?recordingId=${recordingId}&recorderCode=${recorderCode}`;
     }
     
-    // --- GLOBAL NOTIFICATION (remains mostly the same as in Part 1 of 5-file app) ---
     function initGlobalNotifications() {
         appNotificationElement = document.getElementById('app-notification');
         appNotificationMessage = document.getElementById('app-notification-message');
@@ -265,13 +266,15 @@ const SharedAppLogic = (() => {
 
         if (appNotificationCloseButton) {
             appNotificationCloseButton.addEventListener('click', hideGlobalNotification);
+        } else {
+            // console.warn("Notification close button not found on this page. Notifications might not be closable manually.");
         }
     }
 
-    function showGlobalNotification(message, type = 'info', duration = 5000) {
+    function showGlobalNotification(message, type = 'info', duration = 4000) {
         if (!appNotificationElement || !appNotificationMessage || !appNotificationIconContainer) {
-            console.warn("Global notification elements not found on this page. Alerting instead:", message);
-            alert(message); 
+            console.warn("Global notification elements not found. Alerting:", message);
+            alert(`${type.toUpperCase()}: ${message}`); 
             return;
         }
         if (notificationTimeout) clearTimeout(notificationTimeout);
@@ -284,10 +287,13 @@ const SharedAppLogic = (() => {
         let iconClass = 'fas fa-info-circle';
         let bgColor = 'bg-blue-500'; 
 
-        if (document.body.classList.contains('client-view-active')) bgColor = 'bg-green-500';
-        else if (document.body.classList.contains('recorder-view-active')) bgColor = 'bg-blue-500';
-        else if (document.body.classList.contains('salesperson-view-active')) bgColor = 'bg-purple-500';
-        else if (document.body.classList.contains('index-view-active')) bgColor = 'bg-gray-500';
+        // Determine theme color for info notifications
+        if (type === 'info') {
+            if (document.body.classList.contains('client-view-active')) bgColor = 'bg-green-500';
+            else if (document.body.classList.contains('recorder-view-active')) bgColor = 'bg-blue-500';
+            else if (document.body.classList.contains('salesperson-view-active')) bgColor = 'bg-purple-500';
+            else if (document.body.classList.contains('index-view-active')) bgColor = 'bg-gray-500'; // For app-main-dashboard
+        }
 
         if (type === 'success') { iconClass = 'fas fa-check-circle'; bgColor = 'bg-green-500'; }
         else if (type === 'error') { iconClass = 'fas fa-exclamation-circle'; bgColor = 'bg-red-500'; }
@@ -306,7 +312,7 @@ const SharedAppLogic = (() => {
         appNotificationElement.classList.remove('notification-show', 'opacity-100');
         appNotificationElement.classList.add('notification-hide');
         setTimeout(() => {
-            appNotificationElement.classList.add('opacity-0','translate-x-full', 'pointer-events-none', 'hidden');
+            if(appNotificationElement) appNotificationElement.classList.add('opacity-0','translate-x-full', 'pointer-events-none', 'hidden');
         }, 450); 
     }
     
@@ -319,42 +325,25 @@ const SharedAppLogic = (() => {
         if (loaderSpan) loaderSpan.classList.toggle('hidden', !isLoading);
     }
 
-    // Public API of SharedAppLogic
     return {
         // Auth
-        registerAPI,
-        loginAPI,
-        logoutAPI,
-        checkSessionAPI,
-        setAuthToken, // For landing page to set after its own auth flow if needed
-        clearAuthToken,
-        isAuthenticated,
-        getCurrentUser,
-        USER_STORAGE_KEY,
+        registerAPI, loginAPI, logoutAPI, checkSessionAPI,
+        setAuthToken, clearAuthTokenAndUser, isAuthenticated, getCurrentUser, USER_STORAGE_KEY,
 
         // Meetings
-        fetchMeetings: fetchMeetingsAPI,
-        createMeeting: createMeetingAPI,
-        updateMeeting: updateMeetingAPI,
-        deleteMeeting: deleteMeetingAPI,
-        getMeetings, // Returns local cache
-        getMeetingById, // Searches local cache
+        fetchMeetingsAPI, createMeetingAPI,
+        updateMeetingAPI, deleteMeetingAPI,
+        getMeetings, getMeetingById,
 
         // Recordings & Analysis
-        uploadRecordingAPI,
-        fetchAnalysisStatusAPI,
-        fetchAnalysisDataAPI,
-        queryAnalysisAPI,
-        downloadAnalysisPdfAPI,
+        uploadRecordingAPI, fetchAnalysisStatusAPI, fetchAnalysisDataAPI,
+        queryAnalysisAPI, downloadAnalysisPdfAPI,
 
         // Client Access
         validateClientAccessAPI,
 
         // Utilities
-        generateId, // Still useful for frontend temp IDs or non-critical unique keys
-        generateRecorderLink, // Backend primarily generates this; this is a fallback/display helper
-        showGlobalNotification,
-        initGlobalNotifications,
-        setButtonLoadingState
+        generateId, generateRecorderLink,
+        showGlobalNotification, initGlobalNotifications, setButtonLoadingState
     };
 })();

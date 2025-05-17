@@ -7,7 +7,7 @@
 
     /* Green Theme (Client) */
     --primary-gradient-green: linear-gradient(135deg, #e6f9f0 0%, #d1f0e0 100%);
-    --green-300: #86efac; /* Added for hover states */
+    --green-300: #86efac; 
     --green-400: #4ade80;
     --green-500: #22c55e;
     --green-600: #16a34a;
@@ -47,21 +47,21 @@ body {
     overflow-x: hidden;
     color: var(--base-text-color);
     font-size: var(--base-font-size);
-    transition: background 0.5s ease-out; /* Smooth background transition */
+    transition: background 0.5s ease-out; 
     min-height: 100vh;
     display: flex;
     flex-direction: column;
 }
 
-/* Default body background, will be overridden by view-specific classes */
-body.index-view-active { background: linear-gradient(135deg, #f0f4f8 0%, #e6e9ed 100%); }
+/* Theme-specific body backgrounds */
+body.index-view-active { background: linear-gradient(135deg, #f0f4f8 0%, #e6e9ed 100%); } /* For app-main-dashboard */
 body.client-view-active { background: var(--primary-gradient-green); }
 body.recorder-view-active { background: var(--primary-gradient-blue); }
 body.salesperson-view-active { background: var(--primary-gradient-purple); }
 
 
 @media (prefers-reduced-motion: reduce) {
-    .animate-slide-in, .notification-show, .fade-in, .btn-hover, .icon-hover, .animate-pulse-custom, .status-recording, .status-processing {
+    .animate-slide-in, .notification-show, .fade-in, .btn-hover, .icon-hover, .animate-pulse-custom, .status-recording, .status-processing, .status-uploading_to_backend {
         animation: none !important;
         transition: none !important;
         transform: none !important;
@@ -80,9 +80,7 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 }
 
 /* Global Notification Styles (used by shared-app-logic.js) */
-#app-notification {
-    /* position, z-index, etc. are set inline on the element in each HTML */
-}
+/* #app-notification is styled inline in HTML for position, z-index */
 .notification-show {
     animation: slideInRightApp 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
 }
@@ -132,8 +130,10 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 /* Markdown Content Styles (common) */
 .markdown-content ul { list-style-type: disc; margin-left: 24px; margin-bottom: 1.1rem; }
 .markdown-content ol { list-style-type: decimal; margin-left: 24px; margin-bottom: 1.1rem; }
-.markdown-content p { margin-bottom: 0.85rem; line-height: 1.75; color: #4b5563; font-size: 0.95rem; }
+.markdown-content p { margin-bottom: 0.85rem; line-height: 1.75; color: #4b5563; font-size: 0.95rem; } /* gray-600 */
 .markdown-content em { font-style: italic; }
+.markdown-content pre { background-color: #f8f9fa; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
+
 
 /* Theme-specific markdown styles */
 .client-view-active .markdown-content h1, 
@@ -160,7 +160,7 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 
 /* Tab styling (common structure) */
 .analysis-tab {
-    padding: 0.85rem 1.25rem; font-weight: 500; color: #6b7280; 
+    padding: 0.85rem 1.25rem; font-weight: 500; color: #6b7280; /* gray-500 */
     border-bottom-width: 3px; border-color: transparent;
     transition: all 0.25s ease-in-out; margin-right: 0.5rem;
     cursor: pointer;
@@ -178,19 +178,18 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
     background-color: rgba(255, 255, 255, 0.9); border: 1px solid #cbd5e1; /* slate-300 */
     transition: all 0.25s ease-in-out; padding: 0.85rem; font-size: 0.95rem;
     border-radius: 0.75rem; /* rounded-xl */
-    width: 100%; /* Ensure inputs take full width by default */
+    width: 100%; 
 }
 .custom-input:focus, .custom-select:focus {
     outline: 2px solid transparent; outline-offset: 2px;
 }
-/* Theme-specific input focus */
 .client-view-active .custom-input:focus, .client-view-active .custom-select:focus { border-color: var(--green-500); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25); }
 .recorder-view-active .custom-input:focus, .recorder-view-active .custom-select:focus { border-color: var(--blue-500); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
 .salesperson-view-active .custom-input:focus, .salesperson-view-active .custom-select:focus { border-color: var(--purple-500); box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.25); }
 
 .custom-textarea { min-height: 80px; }
 
-/* Button styles (theme specific) */
+/* Primary Button styles (theme specific) */
 .btn-primary-green { background-image: linear-gradient(to right, var(--green-500) 0%, var(--green-600) 50%, var(--green-500) 100%); box-shadow: 0 10px 20px -5px rgba(22, 101, 52, 0.3); }
 .btn-primary-blue { background-image: linear-gradient(to right, var(--blue-500) 0%, var(--blue-600) 50%, var(--blue-500) 100%); box-shadow: 0 10px 20px -5px rgba(29, 78, 216, 0.3); }
 .btn-primary-purple { background-image: linear-gradient(to right, var(--purple-500) 0%, var(--purple-600) 50%, var(--purple-500) 100%); box-shadow: 0 10px 20px -5px rgba(91, 33, 182, 0.3); }
@@ -198,27 +197,26 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 .btn-primary-green, .btn-primary-blue, .btn-primary-purple {
     background-size: 250% auto; color: white; font-weight: 600;
     padding: 0.85rem 1.5rem; border-radius: 0.75rem;
-    display: inline-flex; /* For icon alignment */
+    display: inline-flex; 
     align-items: center;
     justify-content: center;
 }
 .btn-primary-green:hover, .btn-primary-blue:hover, .btn-primary-purple:hover { background-position: right center; }
 
-/* Secondary Outline Buttons (Theme Specific) */
-.btn-secondary-outline-purple { border-color: var(--purple-500); color: var(--purple-600); }
-.btn-secondary-outline-purple:hover { background-color: rgba(147, 51, 234, 0.05); }
-/* Add .btn-secondary-outline-green and .btn-secondary-outline-blue if needed */
-
-.btn-secondary-outline { /* Generic structure for outline buttons */
+/* Secondary Outline Buttons */
+.btn-secondary-outline { 
     background-color: transparent;
     border-width: 2px;
     font-weight: 600;
-    padding: calc(0.85rem - 2px) calc(1.5rem - 2px); /* Adjust padding for border */
+    padding: calc(0.85rem - 2px) calc(1.5rem - 2px); 
     border-radius: 0.75rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
 }
+.btn-secondary-outline-purple { border-color: var(--purple-500); color: var(--purple-600); }
+.btn-secondary-outline-purple:hover { background-color: rgba(147, 51, 234, 0.05); }
+/* Add .btn-secondary-outline-green and .btn-secondary-outline-blue if needed for other views */
 
 
 .btn-danger { background-image: linear-gradient(to right, var(--red-500) 0%, var(--red-600) 50%, var(--red-500) 100%); background-size: 250% auto; color: white; font-weight: 600; padding: 0.75rem 1.25rem; border-radius: 0.65rem; box-shadow: 0 10px 20px -5px rgba(220, 38, 38, 0.3); display: inline-flex; align-items: center; justify-content: center;}
@@ -228,7 +226,7 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 .btn-success { background-image: linear-gradient(to right, var(--green-500) 0%, var(--green-600) 50%, var(--green-500) 100%); background-size: 250% auto; color: white; font-weight: 600; padding: 0.75rem 1.25rem; border-radius: 0.65rem; box-shadow: 0 10px 20px -5px rgba(22, 101, 52, 0.3); display: inline-flex; align-items: center; justify-content: center;}
 .btn-success:hover { background-position: right center; }
 
-.btn-header {
+.btn-header { /* Used by app-main-dashboard and role-specific headers */
     background-color: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
     color: white; padding: 0.6rem 1.1rem; border-radius: 0.65rem;
     display: inline-flex; align-items: center; justify-content: center;
@@ -255,13 +253,17 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 .status-indicator { width: 0.75rem; height: 0.75rem; border-radius: 50%; }
 .status-recording { background-color: var(--red-500); animation: pulse-red 1.5s infinite; }
 .status-processing { background-color: var(--yellow-500); animation: pulse-yellow 1.5s infinite; }
+.status-uploading_to_backend { background-color: var(--blue-400); animation: pulse-blue 1.5s infinite; }
 .status-completed { background-color: var(--green-500); }
-.status-scheduled { background-color: var(--purple-400); } /* For Salesperson view */
+.status-scheduled { background-color: var(--purple-400); } 
 .status-cancelled { background-color: #9ca3af; } /* gray-400 */
+.status-failed_to_start, .status-upload_failed, .status-status_check_error, .status-failed { background-color: var(--red-600); }
 
 
 @keyframes pulse-red { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); } }
 @keyframes pulse-yellow { 0%, 100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.7); } 50% { box-shadow: 0 0 0 8px rgba(234, 179, 8, 0); } }
+@keyframes pulse-blue { 0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); } 50% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); } }
+
 
 .animate-pulse-custom .h-4 { height: 1rem; }
 .animate-pulse-custom .mb-4 { margin-bottom: 1rem; }
@@ -271,30 +273,24 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 .animate-pulse-custom .rounded { border-radius: 0.25rem; }
 .animate-pulse-custom .bg-gray-200 { background-color: #e5e7eb; }
 
-
-/* Custom scrollbar for question history etc. */
-.custom-scrollbar::-webkit-scrollbar { width: 8px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 10px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.3); }
-
-/* Helper for hidden elements in JS logic */
 .hidden {
     display: none !important;
 }
 
-/* Ensure main content areas take up space */
 main.flex-grow {
     flex-grow: 1;
 }
 
-/* Specific styles for button loaders */
 .button-loader {
     display: inline-flex;
     align-items: center;
 }
 
-/* Ensure view sections are block by default for JS toggling */
-.view-section {
-    display: block; /* Default, JS will add 'hidden' */
+.view-section { 
+    display: block; 
 }
+
+.custom-scrollbar::-webkit-scrollbar { width: 8px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.3); }

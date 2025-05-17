@@ -1,21 +1,20 @@
 // File: /api/recordings/[recordingId]/status.js
 // Handles GET /api/recordings/:recordingId/analysis/status
+// This Vercel function interacts directly with DynamoDB.
 
-// const AWS = require('aws-sdk');
-// const { authenticateToken } = require('../../../../utils/auth'); // Adjust path
+import { authenticateToken } from '../../../utils/auth'; // Adjust path
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 
-// Configure AWS SDK
-// AWS.config.update({ /* ... */ });
-// const dynamoDb = new AWS.DynamoDB.DocumentClient();
-// const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
+const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
+const REGION = process.env.MY_AWS_REGION;
 
-// Placeholder for your actual authentication logic
-function authenticateToken(req) {
-    if (req.headers.authorization) { // Simplified check
-        return { authenticated: true, user: { userId: "user-sim-123" } };
-    }
-    return { authenticated: true, user: { userId: "user-sim-123" } }; // Default for testing
+if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION) {
+    console.error("FATAL_ERROR: Missing critical environment variables for analysis status API.");
 }
+
+const ddbClient = new DynamoDBClient({ region: REGION });
+const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 export default async function handler(req, res) {
     if (req.method !== 'GET') {
@@ -24,34 +23,41 @@ export default async function handler(req, res) {
     }
 
     const { recordingId } = req.query;
+    
+    if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION) {
+        return res.status(500).json({ success: false, message: "Server configuration error." });
+    }
 
     const authResult = authenticateToken(req);
     if (!authResult.authenticated) {
-        return res.status(401).json({ success: false, message: "Unauthorized" });
+        return res.status(authResult.status || 401).json({ success: false, message: authResult.message || "Unauthorized" });
     }
-    // const userId = authResult.user.userId; // For authorization if needed
+    const userId = authResult.user.userId; 
 
     if (!recordingId) {
         return res.status(400).json({ success: false, message: "Recording ID is required." });
     }
 
     try {
-        // --- PRODUCTION: Fetch recording status from DynamoDB ---
-        /*
         const params = {
             TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
             Key: { recordingId: recordingId }, 
+            ProjectionExpression: "analysisStatus, analysisProgress, analysisStatusMessage, analysisErrorMessage, uploaderUserId, originalMeetingId" 
         };
-        const { Item: recording } = await dynamoDb.get(params).promise();
+        const { Item: recording } = await docClient.send(new GetCommand(params));
 
         if (!recording) {
-            return res.status(404).json({ success: false, message: 'Recording not found.' });
+            return res.status(404).json({ success: false, message: 'Recording status not found.' });
         }
-        // Add authorization: ensure this user can see this recording's status
-        // if (recording.uploaderUserId !== userId && !isUserAdmin(authResult.user)) {
-        //     return res.status(403).json({ success: false, message: 'Access denied.'});
+        
+        // Authorization: Ensure this user (userId) can see this recording's status.
+        // This might involve checking recording.uploaderUserId or if it's linked to a meeting they own (via originalMeetingId).
+        // Example (needs refinement based on your exact ownership rules):
+        // if (recording.uploaderUserId !== userId && /* !await userOwnsOriginalMeeting(userId, recording.originalMeetingId) && */ authResult.user.role !== 'admin') { 
+        //     return res.status(403).json({ success: false, message: 'Access denied to this recording status.'});
         // }
 
+        console.log(`API: Fetched status for recording ${recordingId} by user ${userId}`);
         res.status(200).json({
             success: true,
             status: recording.analysisStatus || 'unknown', 
@@ -59,34 +65,6 @@ export default async function handler(req, res) {
             status_message: recording.analysisStatusMessage || `Current status: ${recording.analysisStatus || 'unknown'}`,
             error_message: recording.analysisStatus === 'failed' ? (recording.analysisErrorMessage || 'Analysis failed.') : null
         });
-        */
-
-        // --- SIMULATED STATUS ---
-        console.log(`API: GET /api/recordings/${recordingId}/analysis/status`);
-        const mockStatuses = ['processing', 'processing', 'processing', 'completed', 'failed'];
-        const randomStatus = mockStatuses[Math.floor(Math.random() * mockStatuses.length)];
-        let mockProgress = 0;
-        let statusMessage = `Current status is ${randomStatus} (simulated).`;
-
-        if (randomStatus === 'processing') {
-            mockProgress = Math.floor(Math.random() * 80) + 10;
-            statusMessage = `Processing... ${mockProgress}% complete.`;
-        } else if (randomStatus === 'completed') {
-            mockProgress = 100;
-            statusMessage = 'Analysis completed successfully.';
-        } else if (randomStatus === 'failed') {
-            mockProgress = Math.floor(Math.random() * 50);
-            statusMessage = 'Analysis failed during processing.';
-        }
-
-        res.status(200).json({
-            success: true,
-            status: randomStatus,
-            progress: mockProgress,
-            status_message: statusMessage,
-            error_message: randomStatus === 'failed' ? 'Simulated analysis failure details.' : null
-        });
-        // --- END SIMULATED STATUS ---
 
     } catch (error) {
         console.error(`API Error fetching status for recording ${recordingId}:`, error);

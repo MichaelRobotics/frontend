@@ -11,8 +11,7 @@
 </head>
 <body class="client-view-active"> <div id="app-notification" class="fixed bottom-6 right-6 w-full max-w-sm glass-effect p-5 shadow-2xl pointer-events-none opacity-0 transform translate-x-full rounded-xl z-[100] hidden">
         <div class="flex items-start">
-            <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5">
-                </div>
+            <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5"></div>
             <div class="flex-grow">
                 <p id="app-notification-message" class="text-sm text-gray-800 font-semibold"></p>
             </div>
@@ -23,72 +22,66 @@
     </div>
 
     <div id="client-view-container" class="min-h-screen flex flex-col">
+        <div class="flex-grow flex items-center justify-center">
+            <p class="text-xl text-gray-500">Loading Client Portal...</p>
         </div>
+    </div>
 
     <script src="js/shared-app-logic.js"></script>
     <script src="js/client-view.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // Initialize global notifications from shared logic
             SharedAppLogic.initGlobalNotifications();
 
             const viewContainer = document.getElementById('client-view-container');
-            if (viewContainer && typeof ClientView !== 'undefined') {
-                // Inject the HTML content for the client view
+            if (viewContainer && typeof ClientView !== 'undefined' && typeof SharedAppLogic !== 'undefined') {
                 viewContainer.innerHTML = ClientView.getHTML();
-
-                // Initialize the ClientView module
+                
                 ClientView.init(
-                    SharedAppLogic.getMeetings(),          // Pass the loaded meetings data
-                    SharedAppLogic.showGlobalNotification, // Callback for notifications
-                    (targetView) => {                      // Callback for view switching
+                    SharedAppLogic.showGlobalNotification, 
+                    (targetView) => {                      
                         if (targetView === 'index') {
-                            // Client's "Main Menu" or "Logout" should go back to the main landing page
                             window.location.href = 'landing-page.html';
                         }
                     },
-                    SharedAppLogic.setButtonLoadingState,  // Utility for button loading states
-                    SharedAppLogic.getMeetingById          // Utility to get meeting by ID
+                    SharedAppLogic.setButtonLoadingState,  
+                    SharedAppLogic.validateClientAccessAPI, 
+                    SharedAppLogic.fetchAnalysisDataAPI, // Passed for consistency, though validateClientAccessAPI returns data
+                    SharedAppLogic.queryAnalysisAPI,
+                    SharedAppLogic.downloadAnalysisPdfAPI
                 );
 
-                // Handle URL parameters for direct access
                 const urlParams = new URLSearchParams(window.location.search);
                 const meetingId = urlParams.get('meetingId');
                 const accessCode = urlParams.get('accessCode');
 
                 if (meetingId && accessCode) {
-                    // If ClientView exposes a direct access function, call it.
-                    // Otherwise, ClientView's init or DOM setup should check these.
                     if (typeof ClientView.attemptDirectAccess === 'function') {
                         ClientView.attemptDirectAccess(meetingId, accessCode);
                     } else {
-                        // Fallback: Pre-fill the form if the function isn't exposed directly
-                        // ClientView's internal form submission logic will then handle it.
-                        const idField = document.getElementById('meeting-id-client'); // From ClientView HTML
-                        const codeField = document.getElementById('access-code-client'); // From ClientView HTML
-                        const submitButton = document.getElementById('access-submit-client'); // From ClientView HTML
+                        // Fallback if attemptDirectAccess is not exposed
+                        const idField = document.getElementById('meeting-id-client'); 
+                        const codeField = document.getElementById('access-code-client');
+                        const submitButton = document.getElementById('access-submit-client');
 
                         if (idField) idField.value = meetingId;
                         if (codeField) codeField.value = accessCode;
                         
                         if (idField && codeField && idField.value && codeField.value && submitButton) {
                             SharedAppLogic.showGlobalNotification('Attempting to access meeting with provided details...', 'info');
-                            // Automatically click the submit button to trigger access logic
-                            // Add a small delay to ensure everything is rendered.
-                            setTimeout(() => {
-                                submitButton.click();
-                            }, 100);
+                            setTimeout(() => { submitButton.click(); }, 100);
                         } else if (idField && codeField) {
                              SharedAppLogic.showGlobalNotification('Meeting ID & Code populated. Click "Access Meeting".', 'info');
                         }
                     }
-                } else {
-                    // If no params, ClientView will show its access form by default.
                 }
-
             } else {
-                console.error("Client view container or ClientView module not found.");
-                SharedAppLogic.showGlobalNotification("Error loading client portal module.", "error");
+                console.error("Client view container or ClientView/SharedAppLogic module not found.");
+                 if(typeof SharedAppLogic !== 'undefined' && SharedAppLogic.showGlobalNotification){
+                     SharedAppLogic.showGlobalNotification("Error loading client portal module.", "error");
+                } else {
+                    alert("Critical Error: Client portal module could not be loaded.");
+                }
             }
         });
     </script>
