@@ -1,94 +1,263 @@
 // /js/shared-app-logic.js
 const SharedAppLogic = (() => {
     // --- STATE & CONFIG ---
-    let meetingsData = [];
-    const MEETINGS_STORAGE_KEY = 'integratedMeetingsApp'; // From original App module
-    const USER_STORAGE_KEY = 'meetingAnalysisUser'; // From landing page script
-    let notificationTimeout;
+    let meetingsData = []; // Acts as a local cache
+    let authToken = localStorage.getItem('authToken'); // Load token on script init
+    const USER_STORAGE_KEY = 'meetingAnalysisUser'; // For user object from login/register
+    let currentUser = JSON.parse(localStorage.getItem(USER_STORAGE_KEY)) || null;
 
-    // --- DOM ELEMENTS (for global notification, assumed to be consistent across pages) ---
-    // These will be queried by initGlobalNotifications if the elements exist on the current page.
+    let notificationTimeout;
     let appNotificationElement, appNotificationMessage, appNotificationIconContainer, appNotificationCloseButton;
 
-    // --- LOCAL STORAGE ---
-    function saveMeetingsToStorage() {
-        localStorage.setItem(MEETINGS_STORAGE_KEY, JSON.stringify(meetingsData));
-        // console.log("Meetings saved to storage:", meetingsData);
+    // --- API Base Path (if needed, otherwise relative paths are fine for same-origin) ---
+    // const API_BASE_URL = ''; // e.g., https://your-app.vercel.app/api if different, or keep empty
+
+    // --- UTILITY: HTTP Request Helper ---
+    async function makeApiRequest(endpoint, method = 'GET', body = null, isFormData = false) {
+        const headers = {};
+        if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+        }
+        if (body && !isFormData) {
+            headers['Content-Type'] = 'application/json';
+        }
+
+        const config = {
+            method,
+            headers,
+        };
+
+        if (body) {
+            config.body = isFormData ? body : JSON.stringify(body);
+        }
+
+        try {
+            const response = await fetch(`${endpoint}`, config); // API_BASE_URL + endpoint
+            if (response.status === 401) { // Unauthorized
+                clearAuthToken(); // Clear invalid token
+                showGlobalNotification("Session expired or invalid. Please log in again.", "error");
+                // Redirect to login after a delay, allowing notification to be seen
+                setTimeout(() => {
+                    if (window.location.pathname !== '/landing-page.html' && window.location.pathname !== '/') {
+                         window.location.href = 'landing-page.html'; // Or just '/' if that's your landing
+                    }
+                }, 2500);
+                throw new Error("Unauthorized");
+            }
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ message: `HTTP error! Status: ${response.status}` }));
+                throw new Error(errorData.message || `HTTP error! Status: ${response.status}`);
+            }
+            if (response.status === 204) { // No Content
+                return null;
+            }
+            return await response.json();
+        } catch (error) {
+            console.error(`API request to ${method} ${endpoint} failed:`, error);
+            // showGlobalNotification(`API Error: ${error.message}`, "error"); // Already shown for 401
+            if (error.message !== "Unauthorized") { // Avoid double notification for 401
+                 showGlobalNotification(`Network or API Error: ${error.message || 'Could not connect to server.'}`, "error");
+            }
+            throw error; // Re-throw for specific view handling if needed
+        }
     }
 
-    function loadMeetingsFromStorage() {
-        const stored = localStorage.getItem(MEETINGS_STORAGE_KEY);
-        if (stored) {
-            meetingsData = JSON.parse(stored);
-        } else {
-            // Initialize with some default if none exist (from original App module)
-            meetingsData = [
-                { 
-                    id: 'sm-default-1', 
-                    title: 'Q4 Strategy with Acme Corp', 
-                    date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(), 
-                    clientEmail: 'contact@acme.com', 
-                    notes: 'Discuss Q4 targets and new product line.', 
-                    status: 'Scheduled', 
-                    clientCode: generateId(6), 
-                    // salespersonCode: generateId(6), // Not used in this structure
-                    recorderId: `rec-${generateId(5)}`, // Ensure recorderId is distinct
-                    recorderLink: generateRecorderLink(`rec-${generateId(5)}`, generateId(8)), 
-                    analysisAvailable: false,
-                    analysisData: null
-                },
-                { 
-                    id: 'sm-default-2', 
-                    title: 'Product Demo for Globex Inc.', 
-                    date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), 
-                    clientEmail: 'info@globex.com', 
-                    notes: 'Showcased new AI features. Client seemed impressed. Follow up on pricing.', 
-                    status: 'Completed', 
-                    clientCode: generateId(6), 
-                    // salespersonCode: generateId(6),
-                    recorderId: `rec-${generateId(5)}`,
-                    recorderLink: generateRecorderLink(`rec-${generateId(5)}`, generateId(8)), 
-                    analysisAvailable: true,
-                    startTimeActual: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-                    duration: "00:45:12",
-                    analysisData: { // Mock analysis for the completed default meeting
-                        summary: `<p>The product demo for <strong>Globex Inc.</strong> was successful. Key discussion points included the new AI features, which the client found impressive. A follow-up regarding pricing is required.</p>`,
-                        transcript: `Speaker 1: Welcome to the Globex Inc. demo.\nSpeaker 2: Thank you for presenting today.\n...\n(Simulated transcript for Globex Inc. demo)\n...\nSpeaker 1: Any final questions on the AI capabilities?\nSpeaker 2: Not at this time, it looks very promising. We'll need the pricing details.`,
-                        keyPoints: `<ul><li>Client (Globex Inc.) impressed with new AI features.</li><li>Pricing information requested.</li><li>Potential for strong partnership.</li></ul>`,
-                        actionItems: `<ol><li><strong>Salesperson:</strong> Send detailed pricing proposal to info@globex.com.</li><li><strong>Salesperson:</strong> Schedule follow-up call for next week.</li></ol>`,
-                        questions: `<ul><li>"What is the estimated ROI for a company of our size?" (Client)</li><li>"How does the AI handle industry-specific jargon?" (Client)</li></ul>`,
-                        sentiment: `<p>Overall meeting sentiment: <strong>Very Positive (85%)</strong>.</p><ul><li>Client Engagement: High</li><li>Key Positives: AI features, ease of use.</li><li>Next Steps: Pricing, follow-up call.</li></ul>`
-                    }
-                },
-            ];
-            saveMeetingsToStorage();
+
+    // --- AUTHENTICATION ---
+    async function registerAPI(userData) { // { email, password, name }
+        const data = await makeApiRequest('/api/auth/register', 'POST', userData);
+        if (data && data.success && data.token) {
+            setAuthToken(data.token);
+            setCurrentUser(data.user);
         }
-        // console.log("Meetings loaded from storage:", meetingsData);
+        return data;
+    }
+
+    async function loginAPI(credentials) { // { email, password }
+        const data = await makeApiRequest('/api/auth/login', 'POST', credentials);
+        if (data && data.success && data.token) {
+            setAuthToken(data.token);
+            setCurrentUser(data.user);
+        }
+        return data;
+    }
+
+    async function logoutAPI() {
+        try {
+            // Call backend logout if it does anything (like token blacklisting)
+            // await makeApiRequest('/api/auth/logout', 'POST');
+            console.log("Logout API called (simulated if no server-side invalidation).");
+        } catch (error) {
+            console.warn("Logout API call failed (might be okay if stateless):", error);
+        } finally {
+            clearAuthToken();
+            setCurrentUser(null);
+            // Frontend should redirect after this
+        }
     }
     
-    // --- UTILITIES ---
-    function generateId(length = 8) {
+    async function checkSessionAPI() { // Corresponds to GET /api/auth/me
+        if (!authToken) return null;
+        try {
+            const data = await makeApiRequest('/api/auth/me', 'GET');
+            if (data && data.user) {
+                setCurrentUser(data.user);
+                return data.user;
+            }
+            clearAuthToken(); // Token might be invalid
+            return null;
+        } catch (error) {
+            clearAuthToken();
+            return null;
+        }
+    }
+
+    function setAuthToken(token) {
+        authToken = token;
+        localStorage.setItem('authToken', token);
+    }
+    function clearAuthToken() {
+        authToken = null;
+        localStorage.removeItem('authToken');
+        localStorage.removeItem(USER_STORAGE_KEY); // Also clear user object
+        currentUser = null;
+    }
+    function isAuthenticated() {
+        return !!authToken; // Basic check, could be enhanced by checkSessionAPI
+    }
+    function setCurrentUser(userData) {
+        currentUser = userData;
+        if (userData) {
+            localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(userData));
+        } else {
+            localStorage.removeItem(USER_STORAGE_KEY);
+        }
+    }
+    function getCurrentUser() {
+        if (!currentUser) {
+            currentUser = JSON.parse(localStorage.getItem(USER_STORAGE_KEY));
+        }
+        return currentUser;
+    }
+
+
+    // --- MEETINGS DATA ---
+    async function fetchMeetingsAPI() {
+        try {
+            meetingsData = await makeApiRequest('/api/meetings', 'GET');
+            return meetingsData;
+        } catch (error) {
+            // meetingsData will retain its last successful state or be empty
+            return meetingsData; // Return cached or empty on error
+        }
+    }
+
+    async function createMeetingAPI(meetingDetails) { // { title, date, clientEmail, notes }
+        const newMeeting = await makeApiRequest('/api/meetings', 'POST', meetingDetails);
+        // No local meetingsData.push(newMeeting) here; fetchMeetingsAPI should be called to get the source of truth
+        return newMeeting; // Return the created meeting from backend (which includes IDs)
+    }
+
+    async function updateMeetingAPI(meetingId, meetingDetails) {
+        const updatedMeeting = await makeApiRequest(`/api/meetings/${meetingId}`, 'PUT', meetingDetails);
+        // No local update here; fetchMeetingsAPI should be called
+        return updatedMeeting;
+    }
+
+    async function deleteMeetingAPI(meetingId) {
+        await makeApiRequest(`/api/meetings/${meetingId}`, 'DELETE');
+        // No local update here; fetchMeetingsAPI should be called
+        return { success: true, meetingId };
+    }
+
+    function getMeetings() { // Returns local cache, ensure it's up-to-date by calling fetchMeetingsAPI
+        return meetingsData;
+    }
+
+    function getMeetingById(id) { // Searches local cache
+        return meetingsData.find(m => m.id === id || m.recorderId === id);
+    }
+
+    // --- RECORDINGS & ANALYSIS DATA ---
+    async function uploadRecordingAPI(recordingId, formData) { // formData includes audioBlob, notes, quality, originalMeetingId
+        // The `recordingId` here is the one for the session (from meeting.recordingId or ad-hoc generated)
+        return await makeApiRequest(`/api/recordings/${recordingId}/upload`, 'POST', formData, true);
+    }
+
+    async function fetchAnalysisStatusAPI(recordingId) {
+        return await makeApiRequest(`/api/recordings/${recordingId}/analysis/status`, 'GET');
+    }
+
+    async function fetchAnalysisDataAPI(recordingId) {
+        // This function will now be called by Salesperson, Recorder, and Client views.
+        // The backend endpoint GET /api/recordings/{recordingId}/analysis is responsible
+        // for returning role-specific data if needed.
+        return await makeApiRequest(`/api/recordings/${recordingId}/analysis`, 'GET');
+    }
+
+    async function queryAnalysisAPI(recordingId, question) {
+        return await makeApiRequest(`/api/recordings/${recordingId}/query-analysis`, 'POST', { question });
+    }
+
+    async function downloadAnalysisPdfAPI(recordingId) {
+        // This function will initiate a download by navigating or handling a blob response.
+        // The backend endpoint GET /api/recordings/{recordingId}/analysis/pdf streams the PDF.
+        try {
+            const response = await fetch(`/api/recordings/${recordingId}/analysis/pdf`, {
+                method: 'GET',
+                headers: getAuthHeader()
+            });
+
+            if (!response.ok) {
+                if (response.status === 401) throw new Error("Unauthorized to download PDF.");
+                const errData = await response.json().catch(() => ({ message: `PDF Download failed: ${response.status}`}));
+                throw new Error(errData.message);
+            }
+
+            const blob = await response.blob();
+            const contentDisposition = response.headers.get('content-disposition');
+            let filename = `analysis_report_${recordingId}.pdf`;
+            if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+                if (filenameMatch && filenameMatch.length === 2)
+                    filename = filenameMatch[1];
+            }
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+            showGlobalNotification("PDF download started.", "success");
+            return { success: true };
+        } catch (error) {
+            console.error("Error downloading PDF:", error);
+            showGlobalNotification(`PDF Download Error: ${error.message}`, "error");
+            throw error;
+        }
+    }
+
+    // --- CLIENT ACCESS ---
+    async function validateClientAccessAPI(meetingId, clientCode) {
+        return await makeApiRequest('/api/client/validate-access', 'POST', { meetingId, clientCode });
+    }
+
+
+    // --- UTILITIES (some might be frontend only, some backend generated) ---
+    function generateId(length = 8) { // May still be used for frontend temporary IDs if needed
         return Math.random().toString(36).substring(2, 2 + length).toUpperCase();
     }
-
-    function generateRecorderLink(recorderId, recorderCode) {
-        // This link will now point to recorder.html with query parameters
-        // The base URL will be resolved by the browser.
-        return `recorder.html?meetingId=${recorderId}&recorderCode=${recorderCode}`;
+    function generateRecorderLink(recordingId, recorderCode) { // Backend now generates this primarily
+        // Frontend might use this for display if link isn't directly from backend meeting object
+        return `recorder.html?recordingId=${recordingId}&recorderCode=${recorderCode}`;
     }
-
-    function setButtonLoadingState(button, isLoading, defaultTextSelector = '.button-text', loaderSelector = '.button-loader') {
-        if (!button) return;
-        const textSpan = button.querySelector(defaultTextSelector);
-        const loaderSpan = button.querySelector(loaderSelector);
-        button.disabled = isLoading;
-        if (textSpan) textSpan.classList.toggle('hidden', isLoading);
-        if (loaderSpan) loaderSpan.classList.toggle('hidden', !isLoading);
-    }
-
-    // --- GLOBAL NOTIFICATION (adapted from App module) ---
+    
+    // --- GLOBAL NOTIFICATION (remains mostly the same as in Part 1 of 5-file app) ---
     function initGlobalNotifications() {
-        // Query for notification elements on the current page
         appNotificationElement = document.getElementById('app-notification');
         appNotificationMessage = document.getElementById('app-notification-message');
         appNotificationIconContainer = document.getElementById('app-notification-icon-container');
@@ -101,8 +270,8 @@ const SharedAppLogic = (() => {
 
     function showGlobalNotification(message, type = 'info', duration = 5000) {
         if (!appNotificationElement || !appNotificationMessage || !appNotificationIconContainer) {
-            // console.warn("Global notification elements not found on this page.");
-            alert(message); // Fallback to alert if notification elements are not present
+            console.warn("Global notification elements not found on this page. Alerting instead:", message);
+            alert(message); 
             return;
         }
         if (notificationTimeout) clearTimeout(notificationTimeout);
@@ -113,15 +282,12 @@ const SharedAppLogic = (() => {
         
         appNotificationIconContainer.innerHTML = ''; 
         let iconClass = 'fas fa-info-circle';
-        let bgColor = 'bg-blue-500'; // Default
+        let bgColor = 'bg-blue-500'; 
 
-        // Determine color based on current page's body class (theme) if not error/success/warning
-        if (type === 'info') {
-            if (document.body.classList.contains('client-view-active')) bgColor = 'bg-green-500';
-            else if (document.body.classList.contains('recorder-view-active')) bgColor = 'bg-blue-500';
-            else if (document.body.classList.contains('salesperson-view-active')) bgColor = 'bg-purple-500';
-            else if (document.body.classList.contains('index-view-active')) bgColor = 'bg-gray-500'; // For app-main-dashboard
-        }
+        if (document.body.classList.contains('client-view-active')) bgColor = 'bg-green-500';
+        else if (document.body.classList.contains('recorder-view-active')) bgColor = 'bg-blue-500';
+        else if (document.body.classList.contains('salesperson-view-active')) bgColor = 'bg-purple-500';
+        else if (document.body.classList.contains('index-view-active')) bgColor = 'bg-gray-500';
 
         if (type === 'success') { iconClass = 'fas fa-check-circle'; bgColor = 'bg-green-500'; }
         else if (type === 'error') { iconClass = 'fas fa-exclamation-circle'; bgColor = 'bg-red-500'; }
@@ -144,40 +310,51 @@ const SharedAppLogic = (() => {
         }, 450); 
     }
     
-    // --- PUBLIC API ---
-    // Load meetings immediately when this script is parsed
-    loadMeetingsFromStorage();
+    function setButtonLoadingState(button, isLoading, defaultTextSelector = '.button-text', loaderSelector = '.button-loader') {
+        if (!button) return;
+        const textSpan = button.querySelector(defaultTextSelector);
+        const loaderSpan = button.querySelector(loaderSelector);
+        button.disabled = isLoading;
+        if (textSpan) textSpan.classList.toggle('hidden', isLoading);
+        if (loaderSpan) loaderSpan.classList.toggle('hidden', !isLoading);
+    }
 
+    // Public API of SharedAppLogic
     return {
-        initGlobalNotifications, // Call this on DOMContentLoaded in each HTML page
-        loadMeetings: loadMeetingsFromStorage, // Explicit call if needed, but auto-loads
-        saveMeetings: saveMeetingsToStorage,
-        getMeetings: () => meetingsData,
-        getMeetingById: (id) => meetingsData.find(m => m.id === id || m.recorderId === id),
-        updateMeeting: (updatedMeeting) => {
-            const index = meetingsData.findIndex(m => m.id === updatedMeeting.id || m.recorderId === updatedMeeting.id);
-            if (index !== -1) {
-                meetingsData[index] = { ...meetingsData[index], ...updatedMeeting }; // Merge to preserve all fields
-                saveMeetingsToStorage();
-                return true;
-            }
-            // console.warn("Meeting not found for update:", updatedMeeting.id);
-            return false;
-        },
-        addMeeting: (newMeeting) => {
-            // Ensure no duplicate IDs if adding from different contexts
-            if (meetingsData.some(m => m.id === newMeeting.id || m.recorderId === newMeeting.id)) {
-                // console.warn("Attempted to add a meeting with an existing ID:", newMeeting.id);
-                // Potentially update if it's an ad-hoc recording becoming official
-                return SharedAppLogic.updateMeeting(newMeeting);
-            }
-            meetingsData.push(newMeeting);
-            saveMeetingsToStorage();
-        },
-        generateId,
-        generateRecorderLink,
+        // Auth
+        registerAPI,
+        loginAPI,
+        logoutAPI,
+        checkSessionAPI,
+        setAuthToken, // For landing page to set after its own auth flow if needed
+        clearAuthToken,
+        isAuthenticated,
+        getCurrentUser,
+        USER_STORAGE_KEY,
+
+        // Meetings
+        fetchMeetings: fetchMeetingsAPI,
+        createMeeting: createMeetingAPI,
+        updateMeeting: updateMeetingAPI,
+        deleteMeeting: deleteMeetingAPI,
+        getMeetings, // Returns local cache
+        getMeetingById, // Searches local cache
+
+        // Recordings & Analysis
+        uploadRecordingAPI,
+        fetchAnalysisStatusAPI,
+        fetchAnalysisDataAPI,
+        queryAnalysisAPI,
+        downloadAnalysisPdfAPI,
+
+        // Client Access
+        validateClientAccessAPI,
+
+        // Utilities
+        generateId, // Still useful for frontend temp IDs or non-critical unique keys
+        generateRecorderLink, // Backend primarily generates this; this is a fallback/display helper
         showGlobalNotification,
-        setButtonLoadingState,
-        USER_STORAGE_KEY // Expose for landing page to use the same key
+        initGlobalNotifications,
+        setButtonLoadingState
     };
 })();

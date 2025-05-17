@@ -4,8 +4,8 @@
 // const AWS = require('aws-sdk');
 // AWS.config.update({ /* ... */ });
 // const dynamoDb = new AWS.DynamoDB.DocumentClient();
-// const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME; // Table where meetings are stored with clientCode
-// const RECORDINGS_TABLE_NAME = process.env.RECORDINGS_TABLE_NAME; // Table where analysisData is stored
+// const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME; 
+// const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     }
 
     try {
-        const { meetingId, clientCode } = req.body;
+        const { meetingId, clientCode } = req.body; // meetingId here is the salesperson's original meeting ID
 
         if (!meetingId || !clientCode) {
             return res.status(400).json({ success: false, message: 'Meeting ID and Client Code are required.' });
@@ -22,10 +22,10 @@ export default async function handler(req, res) {
 
         // --- PRODUCTION: Database Interaction (DynamoDB) ---
         /*
-        // 1. Find the meeting by ID (this could be the original sales meeting ID)
+        // 1. Find the meeting in MEETINGS_TABLE_NAME by its original ID and validate clientCode
         const meetingParams = {
             TableName: MEETINGS_TABLE_NAME,
-            Key: { id: meetingId },
+            Key: { id: meetingId }, 
         };
         const { Item: meeting } = await dynamoDb.get(meetingParams).promise();
 
@@ -33,18 +33,19 @@ export default async function handler(req, res) {
             return res.status(401).json({ success: false, message: 'Invalid Meeting ID or Client Code.' });
         }
 
-        if (meeting.status !== 'completed') {
-            return res.status(403).json({ success: false, message: 'Meeting analysis is not yet complete.' });
+        if (meeting.status !== 'completed') { // Or check analysisAvailable flag
+            return res.status(403).json({ success: false, message: 'Meeting analysis is not yet complete or available.' });
         }
 
-        // 2. Fetch the actual analysis data using the recorderId linked from the meeting
-        if (!meeting.recorderId) { // Or actualRecordingId if that's the final link
-             return res.status(404).json({ success: false, message: 'Recording session not found for this meeting.' });
+        // 2. Fetch the actual analysis data using the linked recordingId from the meeting object
+        const recordingIdForAnalysis = meeting.recordingId; // This is the crucial link
+        if (!recordingIdForAnalysis) {
+             return res.status(404).json({ success: false, message: 'Recording session identifier not found for this meeting.' });
         }
 
         const analysisParams = {
-            TableName: RECORDINGS_TABLE_NAME, // Or wherever analysisData is stored for a recording
-            Key: { id: meeting.recorderId }, // Use the linked recorderId to get the analysis
+            TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
+            Key: { recordingId: recordingIdForAnalysis },
         };
         const { Item: recordingWithAnalysis } = await dynamoDb.get(analysisParams).promise();
 
@@ -52,65 +53,60 @@ export default async function handler(req, res) {
             return res.status(404).json({ success: false, message: 'Analysis data not found for this meeting.' });
         }
         
-        // Prepare client-specific view of analysisData if needed
-        const clientAnalysisData = {
-            summary: recordingWithAnalysis.analysisData.summary,
-            keyPoints: recordingWithAnalysis.analysisData.keyPoints,
-            actionItems: recordingWithAnalysis.analysisData.actionItems,
-            questions: recordingWithAnalysis.analysisData.questions,
-            // Exclude sensitive fields like full transcript or internal sentiment scores if necessary
+        // Shape the data specifically for the client
+        const clientSpecificAnalysisData = {
+            summary: recordingWithAnalysis.analysisData.clientAnalysis ? recordingWithAnalysis.analysisData.clientAnalysis.tailoredSummary : recordingWithAnalysis.analysisData.generalSummary,
+            keyPoints: recordingWithAnalysis.analysisData.clientAnalysis ? recordingWithAnalysis.analysisData.clientAnalysis.keyDecisionsAndCommitments : [],
+            actionItems: recordingWithAnalysis.analysisData.clientAnalysis ? recordingWithAnalysis.analysisData.clientAnalysis.actionItemsRelevantToClient : [],
+            questions: recordingWithAnalysis.analysisData.clientAnalysis ? recordingWithAnalysis.analysisData.clientAnalysis.questionsAnsweredForClient : [],
+            // Exclude sensitive fields like full transcript or internal sales sentiment
         };
 
         res.status(200).json({
             success: true,
-            analysisData: clientAnalysisData,
-            recordingId: meeting.recorderId, // Crucial: send the ID for analysis-specific endpoints
+            analysisData: clientSpecificAnalysisData,
+            recordingId: recordingIdForAnalysis, // Send the ID client needs for further calls (PDF, Q&A)
             title: meeting.title,
             date: meeting.date
         });
         */
 
         // --- SIMULATED CLIENT ACCESS ---
-        console.log(`POST /api/client/validate-access for meetingId: ${meetingId}, clientCode: ${clientCode}`);
-        // In a real app, you'd look this up in DynamoDB
-        // Example: Client code "C1A2B3" for meeting "server-m1" (which has recorderId "rec-m1")
-        // Example: Client code "D4E5F6" for meeting "server-m2" (which has recorderId "rec-m2")
-        
-        let foundMeeting = null;
-        if (clientCode === "C1A2B3" && (meetingId === "server-m1" || meetingId === "rec-m1")) {
-            foundMeeting = { 
-                title: "Fetched Meeting 1 (Server)", 
-                date: new Date(Date.now() + 86400000).toISOString(),
-                recorderId: "rec-m1", // This is the ID client needs for other calls
+        console.log(`API: POST /api/client/validate-access for meetingId: ${meetingId}, clientCode: ${clientCode}`);
+        let foundMeetingData = null;
+        if (clientCode === "C1A2B3" && meetingId === "sm-server-" + (new Date(Date.now() + 86400000 * 2).toISOString().substring(0,10).replace(/-/g,''))) { // Example matching
+            foundMeetingData = { 
+                title: "Q1 Review (Server)", 
+                date: new Date(Date.now() + 86400000 * 2).toISOString(),
+                recordingId: `rec-srv-${new Date(Date.now() + 86400000 * 2).toISOString().substring(0,10).replace(/-/g,'')}`, // Example
                 analysisData: {
-                    summary: `<p>Client Access: Summary for meeting 'Fetched Meeting 1 (Server)'. Analysis is complete.</p>`,
-                    keyPoints: `<ul><li>Key Point Alpha for Client</li><li>Key Point Beta for Client</li></ul>`,
-                    actionItems: `<ol><li>Client Action: Review proposal.</li></ol>`,
-                    questions: `<ul><li>Was the budget approved?</li></ul>`
+                    summary: `<p>Client Access: Summary for 'Q1 Review (Server)'. Analysis is complete.</p>`,
+                    keyPoints: [`Client Key Point Alpha for Q1 Review`],
+                    actionItems: [`Client Action: Review Q1 proposal.`],
+                    questions: [`Was the Q1 budget approved?`]
                 }
             };
-        } else if (clientCode === "D4E5F6" && (meetingId === "server-m2" || meetingId === "rec-m2")) {
-             foundMeeting = {
-                title: "Fetched Meeting 2 (Server)",
-                date: new Date(Date.now() - 86400000).toISOString(),
-                recorderId: "rec-m2",
+        } else if (clientCode === "D4E5F6" && meetingId === "sm-server-" + (new Date(Date.now() - 86400000 * 5).toISOString().substring(0,10).replace(/-/g,''))) {
+             foundMeetingData = {
+                title: "Project Phoenix Kickoff (Server)",
+                date: new Date(Date.now() - 86400000 * 5).toISOString(),
+                recordingId: `rec-srv-${new Date(Date.now() - 86400000 * 5).toISOString().substring(0,10).replace(/-/g,'')}`,
                 analysisData: { 
-                    summary: "<p>Client View: Mock summary from server for meeting 2</p>", 
-                    keyPoints: "<li>Client Key Point 1</li><li>Client Key Point 2</li>", 
-                    actionItems: "<ol><li>Client Action 1</li></ol>", 
-                    questions: "<ul><li>Client Question 1?</li></ul>"
-                    // No sentiment for client in this example
+                    summary: "<p>Client View: Mock summary from server for Project Phoenix</p>", 
+                    keyPoints: ["Client Key Decision 1", "Client Key Decision 2"], 
+                    actionItems: ["Client Action Item: Provide feedback."], 
+                    questions: ["When is next milestone?"]
                 }
             };
         }
 
-        if (foundMeeting) {
+        if (foundMeetingData) {
             res.status(200).json({ 
                 success: true, 
-                analysisData: foundMeeting.analysisData, 
-                recordingId: foundMeeting.recorderId, // Send the ID for analysis endpoints
-                title: foundMeeting.title,
-                date: foundMeeting.date
+                analysisData: foundMeetingData.analysisData, 
+                recordingId: foundMeetingData.recordingId,
+                title: foundMeetingData.title,
+                date: foundMeetingData.date
             });
         } else {
             res.status(401).json({ success: false, message: 'Invalid credentials or analysis not ready (Simulated).' });

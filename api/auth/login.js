@@ -2,9 +2,9 @@
 // Handles POST /api/auth/login
 
 // --- Dependencies (Install these via npm/yarn if you use them) ---
-// const bcrypt = require('bcryptjs'); // For comparing hashed passwords
-// const jwt = require('jsonwebtoken'); // For generating JWTs
-// const AWS = require('aws-sdk'); // If using AWS SDK for Cognito or custom auth with DynamoDB
+// const bcrypt = require('bcryptjs'); 
+// const jwt = require('jsonwebtoken'); 
+// const AWS = require('aws-sdk'); 
 
 // --- AWS SDK Configuration (Set credentials and region via Vercel Environment Variables) ---
 // AWS.config.update({
@@ -13,8 +13,8 @@
 //   region: process.env.MY_AWS_REGION
 // });
 // const dynamoDb = new AWS.DynamoDB.DocumentClient();
-// const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME; // e.g., 'MeetingAppUsers'
-// const JWT_SECRET = process.env.JWT_SECRET; // A strong secret for signing JWTs, store in Vercel Env Vars
+// const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME; 
+// const JWT_SECRET = process.env.JWT_SECRET; 
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -33,9 +33,7 @@ export default async function handler(req, res) {
         /*
         const params = {
             TableName: USERS_TABLE_NAME,
-            Key: {
-                email: email.toLowerCase(), // Assuming email is the primary key and stored lowercase
-            },
+            Key: { email: email.toLowerCase() },
         };
         const { Item: user } = await dynamoDb.get(params).promise();
 
@@ -43,45 +41,32 @@ export default async function handler(req, res) {
             return res.status(401).json({ success: false, message: 'Invalid credentials.' });
         }
 
-        // Compare hashed password
-        // const isPasswordValid = await bcrypt.compare(password, user.hashedPassword);
-        // if (!isPasswordValid) {
-        //     return res.status(401).json({ success: false, message: 'Invalid credentials.' });
-        // }
+        const isPasswordValid = await bcrypt.compare(password, user.hashedPassword);
+        if (!isPasswordValid) {
+            return res.status(401).json({ success: false, message: 'Invalid credentials.' });
+        }
 
-        // Passwords match, generate JWT token
-        const tokenPayload = {
-            userId: user.id, // Assuming user object has an 'id'
-            email: user.email,
-            name: user.name, 
-            role: user.role || 'salesperson', // Default role or from DB
-        };
-        const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '1h' }); // Token expires in 1 hour
+        const tokenPayload = { userId: user.id, email: user.email, name: user.name, role: user.role || 'salesperson' };
+        const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '1h' }); 
 
         res.status(200).json({
             success: true,
             message: "Login successful",
             token: token,
-            user: { // Send back some user info for the frontend
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role || 'salesperson'
-            }
+            user: { id: user.id, name: user.name, email: user.email, role: user.role || 'salesperson' }
         });
         */
 
-        // --- SIMULATED SUCCESSFUL LOGIN (for development without DB) ---
-        console.log(`Login attempt for: ${email}`);
+        // --- SIMULATED SUCCESSFUL LOGIN ---
+        console.log(`API: Login attempt for: ${email}`);
         if (email.toLowerCase() === "test@example.com" && password === "password123") {
             const simulatedUser = { 
                 id: 'user-sim-123', 
                 name: 'Test User', 
                 email: email.toLowerCase(), 
-                role: 'salesperson' // Example role
+                role: 'salesperson' 
             };
-            // In a real scenario, JWT_SECRET should be a strong, environment-variable-stored secret
-            const simulatedToken = "simulated_jwt_token_for_" + email.toLowerCase(); // Replace with actual jwt.sign in production
+            const simulatedToken = "simulated_jwt_token_for_" + email.toLowerCase(); 
 
             res.status(200).json({
                 success: true,
@@ -95,7 +80,7 @@ export default async function handler(req, res) {
         // --- END SIMULATED LOGIN ---
 
     } catch (error) {
-        console.error('Login API error:', error);
+        console.error('API Login error:', error);
         res.status(500).json({ success: false, message: 'Internal server error during login.', errorDetails: error.message });
     }
 }

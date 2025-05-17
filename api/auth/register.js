@@ -5,10 +5,10 @@
 // const bcrypt = require('bcryptjs');
 // const jwt = require('jsonwebtoken');
 // const AWS = require('aws-sdk');
-// const { v4: uuidv4 } = require('uuid'); // For generating unique user IDs
+// const { v4: uuidv4 } = require('uuid'); 
 
 // --- AWS SDK Configuration ---
-// AWS.config.update({ /* ... as in login.js ... */ });
+// AWS.config.update({ /* ... */ });
 // const dynamoDb = new AWS.DynamoDB.DocumentClient();
 // const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME;
 // const JWT_SECRET = process.env.JWT_SECRET;
@@ -25,18 +25,16 @@ export default async function handler(req, res) {
         if (!email || !password) {
             return res.status(400).json({ success: false, message: 'Email and password are required.' });
         }
-        if (password.length < 6) { // Basic password policy example
+        if (password.length < 6) { 
             return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
         }
-        // Add more validation for email format, name, etc. as needed
-
+        
         // --- PRODUCTION: Implement Database Interaction (e.g., DynamoDB) ---
         /*
         const lowerCaseEmail = email.toLowerCase();
-        // 1. Check if user already exists
         const checkUserParams = {
             TableName: USERS_TABLE_NAME,
-            Key: { email: lowerCaseEmail }, // Assuming email is unique and primary key
+            Key: { email: lowerCaseEmail },
         };
         const { Item: existingUser } = await dynamoDb.get(checkUserParams).promise();
 
@@ -44,30 +42,19 @@ export default async function handler(req, res) {
             return res.status(409).json({ success: false, message: 'User with this email already exists.' });
         }
 
-        // 2. Hash the password
-        // const salt = await bcrypt.genSalt(10);
-        // const hashedPassword = await bcrypt.hash(password, salt);
-
-        // 3. Create new user object
-        const userId = uuidv4(); // Generate a unique ID for the user
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+        const userId = uuidv4();
         const newUser = {
             id: userId,
             email: lowerCaseEmail,
             hashedPassword,
-            name: name || lowerCaseEmail.split('@')[0], // Default name from email if not provided
-            role: 'salesperson', // Default role, or determine based on registration context
+            name: name || lowerCaseEmail.split('@')[0],
+            role: 'salesperson', 
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
-
-        // 4. Store user in DynamoDB
-        const putUserParams = {
-            TableName: USERS_TABLE_NAME,
-            Item: newUser,
-        };
-        await dynamoDb.put(putUserParams).promise();
-
-        // 5. Generate JWT token
+        await dynamoDb.put({ TableName: USERS_TABLE_NAME, Item: newUser }).promise();
         const tokenPayload = { userId: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role };
         const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '1h' });
 
@@ -80,13 +67,13 @@ export default async function handler(req, res) {
         */
 
         // --- SIMULATED SUCCESSFUL REGISTRATION ---
-        console.log(`Registration attempt for: ${email}`);
+        console.log(`API: Registration attempt for: ${email}`);
         const simulatedUserId = `user-sim-${Date.now()}`;
         const simulatedUser = {
             id: simulatedUserId,
             name: name || email.split('@')[0],
             email: email.toLowerCase(),
-            role: 'salesperson' // Default role for demo
+            role: 'salesperson'
         };
         const simulatedToken = "simulated_jwt_token_for_" + email.toLowerCase();
 
@@ -99,7 +86,7 @@ export default async function handler(req, res) {
         // --- END SIMULATED REGISTRATION ---
 
     } catch (error) {
-        console.error('Registration API error:', error);
+        console.error('API Registration error:', error);
         res.status(500).json({ success: false, message: 'Internal server error during registration.' });
     }
 }
