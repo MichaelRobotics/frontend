@@ -1,25 +1,32 @@
 // /js/shared-app-logic.js
 const SharedAppLogic = (() => {
     // --- STATE & CONFIG ---
-    let meetingsDataCache = []; // Local cache of meetings, primarily populated from API
-    let authToken = localStorage.getItem('authToken'); // Load token on script init
+    let meetingsDataCache = []; 
+    let authToken = localStorage.getItem('authToken'); 
     const USER_STORAGE_KEY = 'meetingAnalysisUser'; 
     let currentUser = JSON.parse(localStorage.getItem(USER_STORAGE_KEY)) || null;
 
     let notificationTimeout;
     let appNotificationElement, appNotificationMessage, appNotificationIconContainer, appNotificationCloseButton;
 
-    // --- API Base Path (Leave empty for relative paths if API is on the same origin) ---
-    // const API_BASE_URL = ''; 
-
     // --- UTILITY: HTTP Request Helper ---
     async function makeApiRequest(endpoint, method = 'GET', body = null, isFormData = false, isBlobResponse = false) {
         const headers = {};
-        if (authToken) {
+        // <<< START DEBUG LOGGING >>>
+        console.log("[SharedAppLogic] makeApiRequest: Current authToken from variable:", authToken);
+        const tokenFromStorageForDebug = localStorage.getItem('authToken');
+        console.log("[SharedAppLogic] makeApiRequest: Current authToken from localStorage:", tokenFromStorageForDebug);
+        // <<< END DEBUG LOGGING >>>
+
+        if (authToken) { // Use the authToken variable, which should be kept in sync with localStorage
             headers['Authorization'] = `Bearer ${authToken}`;
         }
-        // Content-Type is not set for FormData; browser does it with boundary
-        if (body && !isFormData && method !== 'GET' && method !== 'HEAD') { // GET/HEAD requests cannot have a body
+        
+        // <<< START DEBUG LOGGING >>>
+        console.log(`[SharedAppLogic] makeApiRequest: Sending request to ${endpoint} with headers:`, JSON.stringify(headers));
+        // <<< END DEBUG LOGGING >>>
+
+        if (body && !isFormData && method !== 'GET' && method !== 'HEAD') { 
             headers['Content-Type'] = 'application/json';
         }
 
@@ -33,7 +40,7 @@ const SharedAppLogic = (() => {
         }
 
         try {
-            const response = await fetch(endpoint, config); // Assumes API endpoints are relative or API_BASE_URL is prepended
+            const response = await fetch(endpoint, config); 
 
             if (response.status === 401) { 
                 clearAuthTokenAndUser(); 
@@ -51,22 +58,23 @@ const SharedAppLogic = (() => {
                 try {
                     errorData = await response.json();
                 } catch (e) {
-                    // If response is not JSON, use status text
-                    errorData = { message: `HTTP error! Status: ${response.status} ${response.statusText}` };
+                    const textError = await response.text(); 
+                    console.error("[SharedAppLogic] makeApiRequest: Non-JSON error response:", textError);
+                    errorData = { message: `HTTP error! Status: ${response.status} ${response.statusText}. Response: ${textError.substring(0,100)}...` };
                 }
                 throw new Error(errorData.message || `HTTP error! Status: ${response.status} ${response.statusText}`);
             }
 
-            if (response.status === 204) { // No Content
+            if (response.status === 204) { 
                 return null;
             }
 
-            if (isBlobResponse) { // For PDF download
+            if (isBlobResponse) { 
                 return response; 
             }
-            return await response.json(); // For all other successful JSON responses
+            return await response.json(); 
         } catch (error) {
-            console.error(`API request to ${method} ${endpoint} failed:`, error);
+            console.error(`[SharedAppLogic] API request to ${method} ${endpoint} failed:`, error.message);
             if (error.message !== "Unauthorized") { 
                  showGlobalNotification(`API Error: ${error.message || 'Could not connect to server.'}`, "error");
             }
@@ -76,51 +84,62 @@ const SharedAppLogic = (() => {
 
 
     // --- AUTHENTICATION ---
-    async function registerAPI(userData) { // { email, password, name }
+    async function registerAPI(userData) { 
         const data = await makeApiRequest('/api/auth/register', 'POST', userData);
         if (data && data.success && data.token && data.user) {
             setAuthToken(data.token);
             setCurrentUser(data.user);
+            console.log("[SharedAppLogic] registerAPI: Token and user set after registration.");
+        } else {
+            console.warn("[SharedAppLogic] registerAPI: Registration response missing token or user, or not successful.", data);
         }
         return data; 
     }
 
-    async function loginAPI(credentials) { // { email, password }
+    async function loginAPI(credentials) { 
         const data = await makeApiRequest('/api/auth/login', 'POST', credentials);
         if (data && data.success && data.token && data.user) {
             setAuthToken(data.token);
             setCurrentUser(data.user);
+            console.log("[SharedAppLogic] loginAPI: Token and user set after login.");
+        } else {
+             console.warn("[SharedAppLogic] loginAPI: Login response missing token or user, or not successful.", data);
         }
         return data;
     }
 
     async function logoutAPI() {
         try {
-            // Call backend logout. Even if it's just for logging, it's good practice.
             await makeApiRequest('/api/auth/logout', 'POST'); 
-            console.log("Logout API call successful or simulated.");
+            console.log("[SharedAppLogic] logoutAPI: Logout API call successful or simulated.");
         } catch (error) {
-            console.warn("Logout API call failed (might be okay if stateless or already invalid):", error.message);
+            console.warn("[SharedAppLogic] logoutAPI: Logout API call failed:", error.message);
         } finally {
-            clearAuthTokenAndUser(); // Always clear client-side session
+            clearAuthTokenAndUser(); 
         }
     }
     
     async function checkSessionAPI() { 
-        if (!authToken) {
+        if (!localStorage.getItem('authToken')) { 
+            console.log("[SharedAppLogic] checkSessionAPI: No auth token in localStorage, clearing session.");
             clearAuthTokenAndUser(); 
             return null;
         }
+        authToken = localStorage.getItem('authToken'); 
+        console.log("[SharedAppLogic] checkSessionAPI: Attempting to verify session with token:", authToken ? "Present" : "Absent");
+
         try {
-            const data = await makeApiRequest('/api/auth/me', 'GET'); // Endpoint to verify token and get user
+            const data = await makeApiRequest('/api/auth/me', 'GET');
             if (data && data.success && data.user) {
-                setCurrentUser(data.user); // Refresh user data
+                setCurrentUser(data.user);
+                console.log("[SharedAppLogic] checkSessionAPI: Session verified, user set:", data.user);
                 return data.user;
             }
-            clearAuthTokenAndUser(); // Token might be invalid if no user data returned
+            console.warn("[SharedAppLogic] checkSessionAPI: /api/auth/me did not return success or user data.", data);
+            clearAuthTokenAndUser(); 
             return null;
         } catch (error) { 
-            // makeApiRequest already handles 401 by clearing token
+            console.error("[SharedAppLogic] checkSessionAPI: Error during session check, token cleared.", error.message);
             return null;
         }
     }
@@ -128,22 +147,28 @@ const SharedAppLogic = (() => {
     function setAuthToken(token) {
         authToken = token;
         localStorage.setItem('authToken', token);
+        console.log("[SharedAppLogic] setAuthToken: Token stored in localStorage and variable.");
     }
     function clearAuthTokenAndUser() {
+        console.log("[SharedAppLogic] clearAuthTokenAndUser: Clearing token and user from localStorage and variable.");
         authToken = null;
         currentUser = null;
         localStorage.removeItem('authToken');
         localStorage.removeItem(USER_STORAGE_KEY); 
     }
     function isAuthenticated() {
-        return !!localStorage.getItem('authToken'); 
+        const tokenExists = !!localStorage.getItem('authToken');
+        // console.log("[SharedAppLogic] isAuthenticated check:", tokenExists); // Can be noisy
+        return tokenExists; 
     }
     function setCurrentUser(userData) {
         currentUser = userData;
         if (userData) {
             localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(userData));
+            console.log("[SharedAppLogic] setCurrentUser: User data stored/updated in localStorage.");
         } else {
             localStorage.removeItem(USER_STORAGE_KEY);
+            console.log("[SharedAppLogic] setCurrentUser: User data removed from localStorage.");
         }
     }
     function getCurrentUser() {
@@ -153,12 +178,13 @@ const SharedAppLogic = (() => {
                 try {
                     currentUser = JSON.parse(storedUser);
                 } catch (e) {
-                    console.error("Error parsing stored user data:", e);
+                    console.error("[SharedAppLogic] getCurrentUser: Error parsing stored user data:", e);
                     localStorage.removeItem(USER_STORAGE_KEY); 
                     currentUser = null;
                 }
             }
         }
+        // console.log("[SharedAppLogic] getCurrentUser:", currentUser); // Can be noisy
         return currentUser;
     }
 
@@ -166,24 +192,22 @@ const SharedAppLogic = (() => {
     async function fetchMeetingsAPI() {
         const data = await makeApiRequest('/api/meetings', 'GET');
         meetingsDataCache = Array.isArray(data) ? data : []; 
+        console.log("[SharedAppLogic] fetchMeetingsAPI: Meetings cache updated.", meetingsDataCache.length, "meetings fetched.");
         return meetingsDataCache;
     }
 
     async function createMeetingAPI(meetingDetails) { 
         const newMeeting = await makeApiRequest('/api/meetings', 'POST', meetingDetails);
-        // Caller should refresh the list via fetchMeetingsAPI()
         return newMeeting; 
     }
 
     async function updateMeetingAPI(meetingId, meetingDetails) {
         const updatedMeeting = await makeApiRequest(`/api/meetings/${meetingId}`, 'PUT', meetingDetails);
-        // Caller should refresh the list via fetchMeetingsAPI()
         return updatedMeeting;
     }
 
     async function deleteMeetingAPI(meetingId) {
         await makeApiRequest(`/api/meetings/${meetingId}`, 'DELETE');
-        // Caller should refresh the list via fetchMeetingsAPI()
         return { success: true, meetingId };
     }
 
@@ -237,8 +261,7 @@ const SharedAppLogic = (() => {
             showGlobalNotification("PDF download initiated.", "success");
             return { success: true };
         } catch (error) {
-            console.error("Error triggering PDF download in SharedAppLogic:", error);
-            // Error notification is likely already handled by makeApiRequest
+            console.error("[SharedAppLogic] Error triggering PDF download:", error);
             throw error; 
         }
     }
@@ -253,8 +276,6 @@ const SharedAppLogic = (() => {
         return Math.random().toString(36).substring(2, 2 + length).toUpperCase();
     }
     function generateRecorderLink(recordingId, recorderCode) { 
-        // This is primarily for display if the backend doesn't return the full link.
-        // The canonical link should come from the backend meeting object.
         return `recorder.html?recordingId=${recordingId}&recorderCode=${recorderCode}`;
     }
     
@@ -266,8 +287,6 @@ const SharedAppLogic = (() => {
 
         if (appNotificationCloseButton) {
             appNotificationCloseButton.addEventListener('click', hideGlobalNotification);
-        } else {
-            // console.warn("Notification close button not found on this page. Notifications might not be closable manually.");
         }
     }
 
@@ -287,13 +306,10 @@ const SharedAppLogic = (() => {
         let iconClass = 'fas fa-info-circle';
         let bgColor = 'bg-blue-500'; 
 
-        // Determine theme color for info notifications
-        if (type === 'info') {
-            if (document.body.classList.contains('client-view-active')) bgColor = 'bg-green-500';
-            else if (document.body.classList.contains('recorder-view-active')) bgColor = 'bg-blue-500';
-            else if (document.body.classList.contains('salesperson-view-active')) bgColor = 'bg-purple-500';
-            else if (document.body.classList.contains('index-view-active')) bgColor = 'bg-gray-500'; // For app-main-dashboard
-        }
+        if (document.body.classList.contains('client-view-active')) bgColor = 'bg-green-500';
+        else if (document.body.classList.contains('recorder-view-active')) bgColor = 'bg-blue-500';
+        else if (document.body.classList.contains('salesperson-view-active')) bgColor = 'bg-purple-500';
+        else if (document.body.classList.contains('index-view-active')) bgColor = 'bg-gray-500';
 
         if (type === 'success') { iconClass = 'fas fa-check-circle'; bgColor = 'bg-green-500'; }
         else if (type === 'error') { iconClass = 'fas fa-exclamation-circle'; bgColor = 'bg-red-500'; }

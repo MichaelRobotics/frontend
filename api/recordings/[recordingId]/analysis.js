@@ -2,14 +2,14 @@
 // Handles GET /api/recordings/:recordingId/analysis
 // This Vercel function interacts directly with DynamoDB and shapes data by role.
 
-import { authenticateTokenOrClientAccess } from '../../../../utils/auth'; // Adjust path
+import { authenticateTokenOrClientAccess } from '../../../../utils/auth.js'; // Adjust path
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
 const REGION = process.env.MY_AWS_REGION;
 
-if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION) {
+if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) {
     console.error("FATAL_ERROR: Missing critical environment variables for analysis API.");
 }
 
@@ -61,7 +61,7 @@ export default async function handler(req, res) {
                 transcript: fullAnalysis.transcript,
                 generalSummary: fullAnalysis.generalSummary,
                 salespersonAnalysis: fullAnalysis.salespersonAnalysis,
-                clientAnalysis: fullAnalysis.clientAnalysis // Salesperson might see client-tailored summary too
+                clientAnalysis: fullAnalysis.clientAnalysis 
             };
         } else if (role === 'recorder') {
             responseDataToFrontend = { 

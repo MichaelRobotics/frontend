@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     }
 
     try {
-        const { meetingId, clientCode } = req.body; // meetingId here is the salesperson's original meeting ID
+        const { meetingId, clientCode } = req.body; 
 
         if (!meetingId || !clientCode) {
             return res.status(400).json({ success: false, message: 'Meeting ID and Client Code are required.' });
@@ -36,11 +36,11 @@ export default async function handler(req, res) {
         // 1. Find the meeting in MEETINGS_TABLE_NAME by its original ID and validate clientCode
         const meetingParams = {
             TableName: MEETINGS_TABLE_NAME,
-            Key: { id: meetingId }, // 'id' is the PK of Meetings table
+            Key: { id: meetingId }, 
         };
         const { Item: meeting } = await docClient.send(new GetCommand(meetingParams));
 
-        if (!meeting || meeting.clientCode !== clientCode.toUpperCase()) { // Ensure clientCode comparison is case-insensitive if needed
+        if (!meeting || meeting.clientCode !== clientCode.toUpperCase()) { 
             return res.status(401).json({ success: false, message: 'Invalid Meeting ID or Client Code.' });
         }
 
@@ -53,7 +53,7 @@ export default async function handler(req, res) {
         // 3. Fetch the actual analysis data using the linked recordingId from RECORDINGS_ANALYSIS_TABLE_NAME
         const analysisParams = {
             TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
-            Key: { recordingId: recordingIdForAnalysis }, // 'recordingId' is PK of RecordingsAnalysisTable
+            Key: { recordingId: recordingIdForAnalysis },
         };
         const { Item: recordingWithAnalysis } = await docClient.send(new GetCommand(analysisParams));
 
@@ -68,16 +68,15 @@ export default async function handler(req, res) {
             keyPoints: fullAnalysis.clientAnalysis?.keyDecisionsAndCommitments || [],
             actionItems: fullAnalysis.clientAnalysis?.actionItemsRelevantToClient || [],
             questions: fullAnalysis.clientAnalysis?.questionsAnsweredForClient || [],
-            // Exclude sensitive fields like full transcript or internal sales sentiment for clients
         };
         
         console.log(`API: Client access validated for meetingId ${meetingId}, serving analysis for recordingId ${recordingIdForAnalysis}`);
         res.status(200).json({
             success: true,
             analysisData: clientSpecificAnalysisData,
-            recordingId: recordingIdForAnalysis, // Send the ID client needs for further calls (PDF, Q&A)
+            recordingId: recordingIdForAnalysis, 
             title: meeting.title,
-            date: meeting.date // Original meeting date
+            date: meeting.date 
         });
 
     } catch (error) {

@@ -11,7 +11,8 @@
 </head>
 <body class="recorder-view-active"> <div id="app-notification" class="fixed bottom-6 right-6 w-full max-w-sm glass-effect p-5 shadow-2xl pointer-events-none opacity-0 transform translate-x-full rounded-xl z-[100] hidden">
         <div class="flex items-start">
-            <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5"></div>
+            <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5">
+                </div>
             <div class="flex-grow">
                 <p id="app-notification-message" class="text-sm text-gray-800 font-semibold"></p>
             </div>
@@ -33,12 +34,30 @@
         document.addEventListener('DOMContentLoaded', async () => { 
             SharedAppLogic.initGlobalNotifications();
 
-            if (!SharedAppLogic.isAuthenticated()) { 
+            let user = SharedAppLogic.getCurrentUser();
+            if (!user || !SharedAppLogic.isAuthenticated()) {
+                if (localStorage.getItem('authToken')) {
+                    console.log("Recorder Page: Auth token found, attempting to verify session...");
+                    user = await SharedAppLogic.checkSessionAPI();
+                }
+            } else if (SharedAppLogic.isAuthenticated()){
+                 console.log("Recorder Page: Existing session found, re-verifying...");
+                 user = await SharedAppLogic.checkSessionAPI();
+            }
+
+            if (!user || !SharedAppLogic.isAuthenticated()) { 
                 SharedAppLogic.showGlobalNotification('Access denied. Please sign in.', 'error', 3000);
                 setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
                 return; 
             }
-            // Optional: await SharedAppLogic.checkSessionAPI(); if (!SharedAppLogic.isAuthenticated()) return;
+            // Role check for recorder page
+            if (user.role !== 'recorder' && user.role !== 'admin') { // Assuming admin can access all
+                 SharedAppLogic.showGlobalNotification('Access denied: Insufficient privileges for Recorder Portal.', 'error', 4000);
+                setTimeout(() => { window.location.href = 'app-main-dashboard.html'; }, 4000); // Redirect to role selection
+                return;
+            }
+            console.log("Recorder Page: Session verified for user:", user.email, "Role:", user.role);
+
 
             const viewContainer = document.getElementById('recorder-view-container');
             if (viewContainer && typeof RecorderView !== 'undefined' && typeof SharedAppLogic !== 'undefined') {
@@ -47,27 +66,31 @@
                 RecorderView.init(
                     SharedAppLogic.showGlobalNotification,
                     (targetView) => { 
-                        if (targetView === 'index') window.location.href = 'app-main-dashboard.html';
+                        if (targetView === 'index') {
+                            window.location.href = 'app-main-dashboard.html';
+                        }
                     },
                     SharedAppLogic.setButtonLoadingState,
-                    SharedAppLogic.getMeetingById,      // For looking up meetings to record or view analysis
-                    SharedAppLogic.updateMeetingAPI,    // To update status of meetings (e.g., 'recording', 'processing', 'completed')
-                    SharedAppLogic.addMeetingAPI,       // For new ad-hoc recordings if they create a new meeting entry
-                    SharedAppLogic.fetchMeetingsAPI,    // To list scheduled meetings
+                    SharedAppLogic.getMeetingById,      
+                    SharedAppLogic.updateMeetingAPI,    
+                    SharedAppLogic.addMeetingAPI,       // For new ad-hoc recordings
+                    SharedAppLogic.fetchMeetingsAPI,    
                     SharedAppLogic.uploadRecordingAPI,
                     SharedAppLogic.fetchAnalysisStatusAPI,
                     SharedAppLogic.fetchAnalysisDataAPI,
                     SharedAppLogic.downloadAnalysisPdfAPI,
-                    SharedAppLogic.generateId          // For client-side generation of ad-hoc recording IDs
+                    SharedAppLogic.generateId          
                 );
 
                 const urlParams = new URLSearchParams(window.location.search);
-                const urlRecordingId = urlParams.get('recordingId'); // This is the ID from recorderLink
+                const urlRecordingId = urlParams.get('recordingId'); 
                 const urlRecorderCode = urlParams.get('recorderCode');
 
                 if (urlRecordingId && urlRecorderCode && typeof RecorderView.handleDeepLink === 'function') {
                     // Ensure meetings are loaded before attempting deep link, as handleDeepLink might rely on it
-                    await SharedAppLogic.fetchMeetingsAPI(); // Load meetings into SharedAppLogic cache
+                    // The refreshMeetingsForRecorder in RecorderView.init will handle initial load.
+                    // We might need to await that or ensure handleDeepLink can cope if meetings aren't immediately there.
+                    // For now, assume RecorderView.init's refreshMeetingsForRecorder is sufficient before deep link logic runs.
                     RecorderView.handleDeepLink(urlRecordingId, urlRecorderCode);
                 }
             } else {

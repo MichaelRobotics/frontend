@@ -3,9 +3,6 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
-// Assuming utils/auth.js is at the same level or configured for module resolution
-// For Vercel, relative paths from the current file are typical:
-// import { authenticateToken } from '../../utils/auth'; // If utils is at /api/utils
 
 const USERS_TABLE_NAME = process.env.USERS_TABLE_NAME;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -13,7 +10,7 @@ const REGION = process.env.MY_AWS_REGION;
 
 if (!USERS_TABLE_NAME || !JWT_SECRET || !REGION) {
     console.error("FATAL_ERROR: Missing critical environment variables for /api/auth/login.");
-    // This function might still be invoked by Vercel, so handle gracefully.
+    throw new Error("Server authentication system not configured."); // Fail fast at module load
 }
 
 const ddbClient = new DynamoDBClient({ region: REGION });
@@ -23,10 +20,6 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') {
         res.setHeader('Allow', ['POST']);
         return res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
-    }
-
-    if (!USERS_TABLE_NAME || !JWT_SECRET) { // Re-check for safety
-        return res.status(500).json({ success: false, message: "Server authentication system not configured." });
     }
 
     try {
@@ -39,7 +32,7 @@ export default async function handler(req, res) {
 
         const params = {
             TableName: USERS_TABLE_NAME,
-            Key: { email: lowerCaseEmail }, // Assuming email is the Partition Key
+            Key: { email: lowerCaseEmail }, 
         };
         
         const { Item: user } = await docClient.send(new GetCommand(params));

@@ -11,7 +11,8 @@
 </head>
 <body class="client-view-active"> <div id="app-notification" class="fixed bottom-6 right-6 w-full max-w-sm glass-effect p-5 shadow-2xl pointer-events-none opacity-0 transform translate-x-full rounded-xl z-[100] hidden">
         <div class="flex items-start">
-            <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5"></div>
+            <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5">
+                </div>
             <div class="flex-grow">
                 <p id="app-notification-message" class="text-sm text-gray-800 font-semibold"></p>
             </div>
@@ -35,11 +36,11 @@
 
             const viewContainer = document.getElementById('client-view-container');
             if (viewContainer && typeof ClientView !== 'undefined' && typeof SharedAppLogic !== 'undefined') {
-                viewContainer.innerHTML = ClientView.getHTML();
+                viewContainer.innerHTML = ClientView.getHTML(); // Inject the view's HTML
                 
                 ClientView.init(
                     SharedAppLogic.showGlobalNotification, 
-                    (targetView) => {                      
+                    (targetView) => {                      // Navigation callback
                         if (targetView === 'index') {
                             window.location.href = 'landing-page.html';
                         }
@@ -51,34 +52,30 @@
                     SharedAppLogic.downloadAnalysisPdfAPI
                 );
 
+                // Handle URL parameters for direct access
                 const urlParams = new URLSearchParams(window.location.search);
                 const meetingId = urlParams.get('meetingId');
                 const accessCode = urlParams.get('accessCode');
 
                 if (meetingId && accessCode) {
                     if (typeof ClientView.attemptDirectAccess === 'function') {
+                        // ClientView.attemptDirectAccess will pre-fill form and trigger handleClientAccess
                         ClientView.attemptDirectAccess(meetingId, accessCode);
                     } else {
-                        // Fallback if attemptDirectAccess is not exposed
+                        // Fallback if attemptDirectAccess is not exposed: pre-fill form
+                        console.warn("ClientView.attemptDirectAccess not found, manual form submission might be required if not handled internally.");
                         const idField = document.getElementById('meeting-id-client'); 
                         const codeField = document.getElementById('access-code-client');
-                        const submitButton = document.getElementById('access-submit-client');
-
                         if (idField) idField.value = meetingId;
                         if (codeField) codeField.value = accessCode;
-                        
-                        if (idField && codeField && idField.value && codeField.value && submitButton) {
-                            SharedAppLogic.showGlobalNotification('Attempting to access meeting with provided details...', 'info');
-                            setTimeout(() => { submitButton.click(); }, 100);
-                        } else if (idField && codeField) {
-                             SharedAppLogic.showGlobalNotification('Meeting ID & Code populated. Click "Access Meeting".', 'info');
-                        }
+                        SharedAppLogic.showGlobalNotification('Meeting ID & Code populated. Please click "Access Meeting" if not loaded automatically.', 'info', 5000);
                     }
                 }
             } else {
                 console.error("Client view container or ClientView/SharedAppLogic module not found.");
-                 if(typeof SharedAppLogic !== 'undefined' && SharedAppLogic.showGlobalNotification){
-                     SharedAppLogic.showGlobalNotification("Error loading client portal module.", "error");
+                const mainContainer = document.getElementById('client-view-container');
+                if (mainContainer) {
+                    mainContainer.innerHTML = '<p class="text-center text-red-500 p-10">Critical Error: Client portal module could not be loaded. Please contact support.</p>';
                 } else {
                     alert("Critical Error: Client portal module could not be loaded.");
                 }

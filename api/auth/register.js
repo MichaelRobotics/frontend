@@ -11,6 +11,7 @@ const REGION = process.env.MY_AWS_REGION;
 
 if (!USERS_TABLE_NAME || !JWT_SECRET || !REGION) {
     console.error("FATAL_ERROR: Missing critical environment variables for /api/auth/register.");
+    throw new Error("Server authentication system not configured.");
 }
 
 const ddbClient = new DynamoDBClient({ region: REGION });
@@ -20,9 +21,6 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') {
         res.setHeader('Allow', ['POST']);
         return res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
-    }
-    if (!USERS_TABLE_NAME || !JWT_SECRET) {
-        return res.status(500).json({ success: false, message: "Server authentication system not configured." });
     }
 
     try {
@@ -56,19 +54,17 @@ export default async function handler(req, res) {
         const userId = uuidv4(); 
         const newUser = {
             userId: userId, 
-            email: lowerCaseEmail, // Use email as PK if it's unique and queryable
+            email: lowerCaseEmail, // Assuming email is PK
             hashedPassword,
             name: name ? name.trim() : lowerCaseEmail.split('@')[0], 
             role: 'salesperson', 
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
-        // If email is PK, then Key for PutCommand is { email: lowerCaseEmail }
-        // If userId is PK, then Key for PutCommand is { userId: userId }, and you'd need a GSI on email.
-        // Assuming email is PK for simplicity here:
+
         const putUserParams = {
             TableName: USERS_TABLE_NAME,
-            Item: { ...newUser, email: lowerCaseEmail }, // Ensure PK is set
+            Item: newUser,
             ConditionExpression: "attribute_not_exists(email)" 
         };
         try {

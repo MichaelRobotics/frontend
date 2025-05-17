@@ -7,12 +7,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/main-app-styles.css">
+    <link rel="stylesheet" href="css/main-app-styles.css"> 
 </head>
-<body class="index-view-active"> <div id="app-notification" class="fixed bottom-6 right-6 w-full max-w-sm glass-effect p-5 shadow-2xl pointer-events-none opacity-0 transform translate-x-full rounded-xl z-[100] hidden">
+<body class="index-view-active"> 
+    <div id="app-notification" class="fixed bottom-6 right-6 w-full max-w-sm glass-effect p-5 shadow-2xl pointer-events-none opacity-0 transform translate-x-full rounded-xl z-[100] hidden">
         <div class="flex items-start">
             <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5">
-                </div>
+            </div>
             <div class="flex-grow">
                 <p id="app-notification-message" class="text-sm text-gray-800 font-semibold"></p>
             </div>
@@ -53,7 +54,7 @@
                         <span class="text-sm opacity-90 mt-1">Record & Process Audio</span>
                     </a>
                     </div>
-                 <p class="mt-10 text-xs text-gray-500">Select a role above to proceed to the respective application view. Your session is managed via local storage.</p>
+                 <p class="mt-10 text-xs text-gray-500">Select a role above to proceed to the respective application view.</p>
             </div>
         </main>
 
@@ -64,40 +65,34 @@
 
     <script src="js/shared-app-logic.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initialize global notifications from shared logic
+        document.addEventListener('DOMContentLoaded', async () => { // Made async for checkSessionAPI
             SharedAppLogic.initGlobalNotifications();
-
-            const storedUser = localStorage.getItem(SharedAppLogic.USER_STORAGE_KEY);
             
-            if (!storedUser) {
-                // If no user session, redirect to landing page
-                SharedAppLogic.showGlobalNotification('Please sign in to access the dashboard.', 'warning', 3000);
-                setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
-                return; // Stop further execution for this page
+            let user = SharedAppLogic.getCurrentUser(); 
+            if (!user || !SharedAppLogic.isAuthenticated()) { 
+                if (localStorage.getItem('authToken')) { // Check if a token exists even if user object is missing
+                    user = await SharedAppLogic.checkSessionAPI();
+                }
+            } else if (SharedAppLogic.isAuthenticated()){ 
+                 user = await SharedAppLogic.checkSessionAPI(); // Verify existing token
             }
 
-            try {
-                const user = JSON.parse(storedUser);
-                const userNameDisplay = document.getElementById('user-name-dashboard');
-                if (userNameDisplay && user && user.name) {
-                    userNameDisplay.textContent = `Welcome, ${user.name.split('@')[0]}!`;
-                    userNameDisplay.classList.remove('hidden');
-                }
-            } catch (e) {
-                console.error("Error parsing user data from localStorage:", e);
-                localStorage.removeItem(SharedAppLogic.USER_STORAGE_KEY); // Clear corrupted data
-                SharedAppLogic.showGlobalNotification('Session error. Please sign in again.', 'error', 3000);
+            if (!user || !SharedAppLogic.isAuthenticated()) { 
+                SharedAppLogic.showGlobalNotification('Please sign in to access the dashboard.', 'warning', 3000);
                 setTimeout(() => { window.location.href = 'landing-page.html'; }, 3000);
-                return;
+                return; 
+            }
+
+            const userNameDisplay = document.getElementById('user-name-dashboard');
+            if (userNameDisplay && user.name) {
+                userNameDisplay.textContent = `Welcome, ${user.name.split('@')[0]}!`;
+                userNameDisplay.classList.remove('hidden');
             }
             
             const logoutButton = document.getElementById('logout-dashboard-btn');
             if (logoutButton) {
-                logoutButton.addEventListener('click', () => {
-                    localStorage.removeItem(SharedAppLogic.USER_STORAGE_KEY);
-                    // Also clear any meeting data if logout means full session end
-                    // localStorage.removeItem('integratedMeetingsApp'); // Decide if this is desired
+                logoutButton.addEventListener('click', async () => { 
+                    await SharedAppLogic.logoutAPI(); 
                     SharedAppLogic.showGlobalNotification('You have been logged out successfully.', 'info', 2000);
                     setTimeout(() => { window.location.href = 'landing-page.html'; }, 2000);
                 });
@@ -107,13 +102,6 @@
             if(currentYearSpan) {
                 currentYearSpan.textContent = new Date().getFullYear();
             }
-
-            // Optional: Pre-load meetings data if not already done by shared logic,
-            // though shared-app-logic.js loads it on its own execution.
-            // SharedAppLogic.loadMeetings(); 
-            // console.log("Meetings on dashboard:", SharedAppLogic.getMeetings());
-
-            SharedAppLogic.showGlobalNotification('Welcome to the App Dashboard!', 'success');
         });
     </script>
 </body>

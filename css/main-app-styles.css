@@ -79,8 +79,9 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* Global Notification Styles (used by shared-app-logic.js) */
-/* #app-notification is styled inline in HTML for position, z-index */
+#app-notification { /* Global notification container styling */
+    /* position, z-index, etc. are set inline on the element in each HTML page for simplicity */
+}
 .notification-show {
     animation: slideInRightApp 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
 }
@@ -127,7 +128,6 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 
 .error { color: var(--red-500); font-weight: 500; }
 
-/* Markdown Content Styles (common) */
 .markdown-content ul { list-style-type: disc; margin-left: 24px; margin-bottom: 1.1rem; }
 .markdown-content ol { list-style-type: decimal; margin-left: 24px; margin-bottom: 1.1rem; }
 .markdown-content p { margin-bottom: 0.85rem; line-height: 1.75; color: #4b5563; font-size: 0.95rem; } /* gray-600 */
@@ -135,7 +135,6 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 .markdown-content pre { background-color: #f8f9fa; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; }
 
 
-/* Theme-specific markdown styles */
 .client-view-active .markdown-content h1, 
 .client-view-active .markdown-content h2, 
 .client-view-active .markdown-content h3 { color: var(--green-900); font-weight: 700; margin-bottom: 0.85rem; margin-top: 1.5rem; }
@@ -158,14 +157,12 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 .salesperson-view-active .markdown-content a:hover { color: var(--purple-700); }
 
 
-/* Tab styling (common structure) */
 .analysis-tab {
     padding: 0.85rem 1.25rem; font-weight: 500; color: #6b7280; /* gray-500 */
     border-bottom-width: 3px; border-color: transparent;
     transition: all 0.25s ease-in-out; margin-right: 0.5rem;
     cursor: pointer;
 }
-/* Theme-specific tab active/hover states */
 .client-view-active .analysis-tab:hover { color: var(--green-700); border-color: var(--green-400); }
 .client-view-active .analysis-tab.active { color: var(--green-800); border-color: var(--green-600); font-weight: 700; }
 .recorder-view-active .analysis-tab:hover { color: var(--blue-700); border-color: var(--blue-400); }
@@ -173,7 +170,6 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 .salesperson-view-active .analysis-tab:hover { color: var(--purple-700); border-color: var(--purple-400); }
 .salesperson-view-active .analysis-tab.active { color: var(--purple-800); border-color: var(--purple-600); font-weight: 700; }
 
-/* Input & Select styling (common) */
 .custom-input, .custom-select {
     background-color: rgba(255, 255, 255, 0.9); border: 1px solid #cbd5e1; /* slate-300 */
     transition: all 0.25s ease-in-out; padding: 0.85rem; font-size: 0.95rem;
@@ -189,7 +185,6 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 
 .custom-textarea { min-height: 80px; }
 
-/* Primary Button styles (theme specific) */
 .btn-primary-green { background-image: linear-gradient(to right, var(--green-500) 0%, var(--green-600) 50%, var(--green-500) 100%); box-shadow: 0 10px 20px -5px rgba(22, 101, 52, 0.3); }
 .btn-primary-blue { background-image: linear-gradient(to right, var(--blue-500) 0%, var(--blue-600) 50%, var(--blue-500) 100%); box-shadow: 0 10px 20px -5px rgba(29, 78, 216, 0.3); }
 .btn-primary-purple { background-image: linear-gradient(to right, var(--purple-500) 0%, var(--purple-600) 50%, var(--purple-500) 100%); box-shadow: 0 10px 20px -5px rgba(91, 33, 182, 0.3); }
@@ -203,7 +198,6 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 }
 .btn-primary-green:hover, .btn-primary-blue:hover, .btn-primary-purple:hover { background-position: right center; }
 
-/* Secondary Outline Buttons */
 .btn-secondary-outline { 
     background-color: transparent;
     border-width: 2px;
@@ -253,7 +247,7 @@ body.salesperson-view-active { background: var(--primary-gradient-purple); }
 .status-indicator { width: 0.75rem; height: 0.75rem; border-radius: 50%; }
 .status-recording { background-color: var(--red-500); animation: pulse-red 1.5s infinite; }
 .status-processing { background-color: var(--yellow-500); animation: pulse-yellow 1.5s infinite; }
-.status-uploading_to_backend { background-color: var(--blue-400); animation: pulse-blue 1.5s infinite; }
+.status-uploading_to_backend { background-color: var(--blue-400); animation: pulse-blue 1.5s infinite; } 
 .status-completed { background-color: var(--green-500); }
 .status-scheduled { background-color: var(--purple-400); } 
 .status-cancelled { background-color: #9ca3af; } /* gray-400 */

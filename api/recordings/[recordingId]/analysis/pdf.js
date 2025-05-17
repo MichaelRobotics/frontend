@@ -2,43 +2,27 @@
 // Handles GET /api/recordings/:recordingId/analysis/pdf
 // Vercel function fetches data from DynamoDB, then proxies to AWS API Gateway for PDF Lambda.
 
+import { authenticateTokenOrClientAccess } from '../../../../utils/auth.js'; // Adjust path
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 // import fetch from 'node-fetch';
-// import { authenticateTokenOrClientAccess } from '../../../../utils/auth'; 
-// import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-// import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 
-// const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
-// const REGION = process.env.MY_AWS_REGION;
-// const PDF_API_GATEWAY_ENDPOINT = process.env.PDF_API_GATEWAY_ENDPOINT; 
-// const API_GATEWAY_KEY = process.env.API_GATEWAY_KEY;
+const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
+const REGION = process.env.MY_AWS_REGION;
+const PDF_API_GATEWAY_ENDPOINT = process.env.PDF_API_GATEWAY_ENDPOINT; 
+const API_GATEWAY_KEY = process.env.API_GATEWAY_KEY;
 
-// const ddbClient = new DynamoDBClient({ region: REGION });
-// const docClient = DynamoDBDocumentClient.from(ddbClient);
-
-// --- Placeholder for actual authenticateTokenOrClientAccess utility ---
-import jwt from 'jsonwebtoken'; 
-const JWT_SECRET = process.env.JWT_SECRET; 
-
-async function authenticateTokenOrClientAccess(req, recordingIdForClientValidation) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; 
-    if (token && JWT_SECRET) {
-        try {
-            const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
-            const role = decoded.role || (decoded.email && decoded.email.includes("sales") ? "salesperson" : decoded.email && decoded.email.includes("record") ? "recorder" : "user");
-            return { granted: true, role: role, user: decoded };
-        } catch (err) { /* Fall through */ }
-    }
-    if (req.headers['x-client-validated-for-recording'] === recordingIdForClientValidation) {
-        return { granted: true, role: "client" };
-    }
-    const simulatedRoleFromHeader = req.headers['x-simulated-role'];
-    if (simulatedRoleFromHeader) {
-        return { granted: true, role: simulatedRoleFromHeader, user: { userId: "user-sim-default" } };
-    }
-    return { granted: false, message: "Access Denied.", status: 401 };
+if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION || !PDF_API_GATEWAY_ENDPOINT || !process.env.JWT_SECRET) {
+    console.error("FATAL_ERROR: Missing critical environment variables for PDF API.");
 }
-// --- End Placeholder ---
+
+let docClient;
+if (REGION && RECORDINGS_ANALYSIS_TABLE_NAME) {
+    const ddbClient = new DynamoDBClient({ region: REGION });
+    docClient = DynamoDBDocumentClient.from(ddbClient);
+} else {
+     console.error("DynamoDB Document Client not initialized in /api/recordings/[recordingId]/analysis/pdf.js");
+}
 
 
 export default async function handler(req, res) {
@@ -49,18 +33,9 @@ export default async function handler(req, res) {
 
     const { recordingId } = req.query;
 
-    if (!process.env.RECORDINGS_ANALYSIS_TABLE_NAME || !process.env.MY_AWS_REGION || !process.env.PDF_API_GATEWAY_ENDPOINT || !process.env.JWT_SECRET) {
-        console.error("FATAL_ERROR: Missing critical environment variables for PDF API.");
-        return res.status(500).json({ success: false, message: "Server configuration error." });
+    if (!docClient || !RECORDINGS_ANALYSIS_TABLE_NAME || !PDF_API_GATEWAY_ENDPOINT) {
+        return res.status(500).json({ success: false, message: "Server PDF generation system not configured." });
     }
-    const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
-    const PDF_API_GATEWAY_ENDPOINT = process.env.PDF_API_GATEWAY_ENDPOINT;
-    const API_GATEWAY_KEY = process.env.API_GATEWAY_KEY;
-    const REGION = process.env.MY_AWS_REGION;
-
-    const ddbClient = new DynamoDBClient({ region: REGION });
-    const docClient = DynamoDBDocumentClient.from(ddbClient);
-
 
     const authResult = await authenticateTokenOrClientAccess(req, recordingId);
     if (!authResult.granted) {
@@ -86,24 +61,31 @@ export default async function handler(req, res) {
         // Shape data for PDF Lambda based on role
         let analysisDataForPdf = {}; 
         const fullAnalysis = recording.analysisData;
-        if (role === 'salesperson') analysisDataForPdf = fullAnalysis; 
-        else if (role === 'recorder') analysisDataForPdf = { summary: fullAnalysis.generalSummary, transcript: fullAnalysis.transcript, title: recording.title || "Meeting Recording", date: recording.recordingStartTimeActual || recording.uploadTimestamp, duration: recording.durationSeconds, quality: recording.audioQuality, size: recording.fileSizeMB };
+        const meetingContextInfo = {
+            title: recording.title || (recording.originalMeetingId ? `Meeting ${recording.originalMeetingId}` : "Meeting Analysis Report"),
+            date: recording.recordingStartTimeActual || recording.uploadTimestamp || recording.date,
+            duration: recording.durationSeconds,
+            audioQuality: recording.audioQuality,
+            fileSize: recording.fileSizeMB
+        };
+
+        if (role === 'salesperson') analysisDataForPdf = { ...fullAnalysis, meetingContextInfo };
+        else if (role === 'recorder') analysisDataForPdf = { summary: fullAnalysis.generalSummary, transcript: fullAnalysis.transcript, ...meetingContextInfo };
         else if (role === 'client') {
              const ca = fullAnalysis.clientAnalysis || {};
              const gs = fullAnalysis.generalSummary || "Summary not available.";
-             analysisDataForPdf = { summary: ca.tailoredSummary || gs, keyPoints: ca.keyDecisionsAndCommitments, actionItems: ca.actionItemsRelevantToClient, questions: ca.questionsAnsweredForClient, title: recording.title || "Meeting Review", date: recording.date || recording.recordingStartTimeActual };
+             analysisDataForPdf = { summary: ca.tailoredSummary || gs, keyPoints: ca.keyDecisionsAndCommitments, actionItems: ca.actionItemsRelevantToClient, questions: ca.questionsAnsweredForClient, ...meetingContextInfo };
         } else { 
-            analysisDataForPdf = { summary: fullAnalysis.generalSummary, title: recording.title || "Meeting Summary", date: recording.date || recording.recordingStartTimeActual };
+            analysisDataForPdf = { summary: fullAnalysis.generalSummary, ...meetingContextInfo };
         }
 
         // 2. Call the PDF Generation API Gateway endpoint
         const pdfApiGatewayUrl = PDF_API_GATEWAY_ENDPOINT; 
         const apiGwPayload = {
-            recordingId, 
+            recordingId,
             analysisData: analysisDataForPdf, 
             roleContext: role,
-            meetingTitle: recording.title || (recording.originalMeetingId ? `Meeting ${recording.originalMeetingId}` : "Meeting Analysis Report"),
-            meetingDate: recording.recordingStartTimeActual || recording.uploadTimestamp || recording.date
+            // meetingTitle and meetingDate are now part of analysisDataForPdf.meetingContextInfo
         };
         
         console.log(`API: Requesting PDF from API Gateway: ${pdfApiGatewayUrl} for recording ${recordingId}, role ${role}`);
@@ -112,7 +94,6 @@ export default async function handler(req, res) {
             headers: {
                 'Content-Type': 'application/json',
                 ...(API_GATEWAY_KEY && { 'x-api-key': API_GATEWAY_KEY }),
-                // Include auth token if your PDF API Gateway endpoint is protected by the same user auth
                 ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
             },
             body: JSON.stringify(apiGwPayload)
@@ -121,7 +102,7 @@ export default async function handler(req, res) {
         if (!apiGwResponse.ok) {
             const errorBodyText = await apiGwResponse.text();
             console.error("PDF Generation API Gateway Error Response:", errorBodyText);
-            const errorData = JSON.parse(errorBodyText || "{}"); // Attempt to parse, fallback if not JSON
+            const errorData = JSON.parse(errorBodyText || "{}"); 
             throw new Error(errorData.message || `PDF Generation Service error: ${apiGwResponse.status}`);
         }
         
@@ -134,7 +115,6 @@ export default async function handler(req, res) {
             const pdfBuffer = await apiGwResponse.arrayBuffer(); 
             res.send(Buffer.from(pdfBuffer));
         } else { 
-            // Handle if API GW returns JSON with base64 or S3 link instead of direct stream
             const pdfPayloadText = await apiGwResponse.text();
             let pdfPayload;
             try {

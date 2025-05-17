@@ -2,14 +2,14 @@
 // Handles GET /api/recordings/:recordingId/analysis/status
 // This Vercel function interacts directly with DynamoDB.
 
-import { authenticateToken } from '../../../utils/auth'; // Adjust path
+import { authenticateToken } from '../../../utils/auth.js'; // Adjust path
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
 const REGION = process.env.MY_AWS_REGION;
 
-if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION) {
+if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) {
     console.error("FATAL_ERROR: Missing critical environment variables for analysis status API.");
 }
 
@@ -50,10 +50,10 @@ export default async function handler(req, res) {
             return res.status(404).json({ success: false, message: 'Recording status not found.' });
         }
         
-        // Authorization: Ensure this user (userId) can see this recording's status.
-        // This might involve checking recording.uploaderUserId or if it's linked to a meeting they own (via originalMeetingId).
-        // Example (needs refinement based on your exact ownership rules):
-        // if (recording.uploaderUserId !== userId && /* !await userOwnsOriginalMeeting(userId, recording.originalMeetingId) && */ authResult.user.role !== 'admin') { 
+        // TODO: Implement more granular authorization if needed.
+        // For example, check if the authenticated user (userId) is the recording.uploaderUserId
+        // or owns the recording.originalMeetingId (if present and linked in your MeetingsTable).
+        // if (recording.uploaderUserId !== userId && authResult.user.role !== 'admin' && !await userIsOwnerOfOriginalMeeting(userId, recording.originalMeetingId)) { 
         //     return res.status(403).json({ success: false, message: 'Access denied to this recording status.'});
         // }
 
@@ -61,7 +61,7 @@ export default async function handler(req, res) {
         res.status(200).json({
             success: true,
             status: recording.analysisStatus || 'unknown', 
-            progress: recording.analysisProgress || 0, 
+            progress: recording.analysisProgress !== undefined ? recording.analysisProgress : 0, 
             status_message: recording.analysisStatusMessage || `Current status: ${recording.analysisStatus || 'unknown'}`,
             error_message: recording.analysisStatus === 'failed' ? (recording.analysisErrorMessage || 'Analysis failed.') : null
         });

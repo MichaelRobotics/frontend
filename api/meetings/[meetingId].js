@@ -3,29 +3,35 @@
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { authenticateToken } from '../../utils/auth.js'; // Adjust path
+import { authenticateToken } from '../../utils/auth.js'; // Ensure this path is correct from /api/meetings/
 
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME;
-// If cascading deletes involve other tables:
-// const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
-// const QNA_HISTORY_TABLE_NAME = process.env.QNA_HISTORY_TABLE_NAME;
 const REGION = process.env.MY_AWS_REGION;
 
-if (!MEETINGS_TABLE_NAME || !REGION) {
-    console.error("FATAL_ERROR: Missing critical environment variables for meetings/[meetingId] API.");
+// Environment variable check at module load time
+if (!MEETINGS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) { // JWT_SECRET is used by authenticateToken
+    console.error("FATAL_ERROR: Missing critical environment variables for /api/meetings/[meetingId].js. This function may not operate correctly.");
 }
 
-const ddbClient = new DynamoDBClient({ region: REGION });
-const docClient = DynamoDBDocumentClient.from(ddbClient);
+let docClient;
+if (REGION && MEETINGS_TABLE_NAME) { // Initialize DDB client only if region and table name are set
+    const ddbClient = new DynamoDBClient({ region: REGION });
+    docClient = DynamoDBDocumentClient.from(ddbClient);
+} else {
+    console.error("DynamoDB Document Client not initialized in /api/meetings/[meetingId].js due to missing REGION or MEETINGS_TABLE_NAME.");
+}
 
-// Helper to get and verify ownership
+// Helper to get a meeting and verify ownership by userId
 async function getMeetingAndVerifyOwnership(meetingId, ownerId) {
+    if (!docClient) throw new Error("DynamoDB client not initialized in getMeetingAndVerifyOwnership.");
     if (!MEETINGS_TABLE_NAME) throw new Error("MEETINGS_TABLE_NAME not configured for ownership check.");
+    
     const params = {
         TableName: MEETINGS_TABLE_NAME,
-        Key: { id: meetingId }, 
+        Key: { id: meetingId }, // Assuming 'id' is the Partition Key of MEETINGS_TABLE_NAME
     };
     const { Item: meeting } = await docClient.send(new GetCommand(params));
+
     if (!meeting) {
         return { error: true, status: 404, message: 'Meeting not found.' };
     }
@@ -33,30 +39,33 @@ async function getMeetingAndVerifyOwnership(meetingId, ownerId) {
         console.warn(`Authorization attempt failed: User ${ownerId} tried to access meeting ${meetingId} owned by ${meeting.userId}`);
         return { error: true, status: 403, message: 'Access denied to this meeting.' };
     }
-    return { meeting };
+    return { meeting }; // Contains the fetched meeting item
 }
 
 export default async function handler(req, res) {
     const { meetingId } = req.query;
 
-    if (!MEETINGS_TABLE_NAME || !REGION) { 
-        return res.status(500).json({ success: false, message: "Server configuration error." });
+    // Re-check critical configurations within the handler for robustness
+    if (!docClient || !MEETINGS_TABLE_NAME) { 
+        return res.status(500).json({ success: false, message: "Server configuration error for meetings API." });
     }
 
     const authResult = authenticateToken(req);
     if (!authResult.authenticated) {
         return res.status(authResult.status || 401).json({ success: false, message: authResult.message || "Unauthorized" });
     }
-    const userId = authResult.user.userId;
+    const userId = authResult.user.userId; // ID of the authenticated user
 
     if (!meetingId) {
-        return res.status(400).json({ success: false, message: "Meeting ID is required." });
+        return res.status(400).json({ success: false, message: "Meeting ID parameter is required." });
     }
 
     if (req.method === 'GET') {
         try {
             const { meeting, error, status, message } = await getMeetingAndVerifyOwnership(meetingId, userId);
-            if (error) return res.status(status).json({ success: false, message });
+            if (error) {
+                return res.status(status).json({ success: false, message });
+            }
             
             console.log(`API: Fetched meeting ${meetingId} for user ${userId}`);
             res.status(200).json(meeting);
@@ -67,35 +76,51 @@ export default async function handler(req, res) {
         }
     } else if (req.method === 'PUT') {
         try {
-            const updates = req.body; 
+            const updates = req.body; // Expected: { title?, date?, clientEmail?, notes? }
             
+            // Validate that there's something to update from the allowed fields
             if (Object.keys(updates).length === 0 || 
                 (updates.title === undefined && updates.date === undefined && updates.clientEmail === undefined && updates.notes === undefined)) {
                  return res.status(400).json({ success: false, message: 'No valid update data provided. At least one field (title, date, clientEmail, notes) is required.' });
             }
+            // Add specific validation for each field if present
             if (updates.date && isNaN(new Date(updates.date).getTime())) {
                  return res.status(400).json({ success: false, message: 'Invalid date format for update.' });
             }
-            if (updates.clientEmail && !/\S+@\S+\.\S+/.test(updates.clientEmail)) {
+            if (updates.clientEmail && !/\S+@\S+\.\S+/.test(updates.clientEmail)) { // Basic email validation
                 return res.status(400).json({ success: false, message: 'Invalid client email format for update.' });
             }
 
+            // Verify ownership before attempting update
             const { meeting: existingMeeting, error, status, message } = await getMeetingAndVerifyOwnership(meetingId, userId);
-            if (error) return res.status(status).json({ success: false, message });
+            if (error) {
+                return res.status(status).json({ success: false, message });
+            }
 
+            // Construct DynamoDB UpdateExpression dynamically
             let updateExpression = "SET updatedAt = :ua";
             const expressionAttributeValues = { ":ua": new Date().toISOString() };
-            const expressionAttributeNames = {};
+            const expressionAttributeNames = {}; // For reserved keywords
 
-            if (updates.title !== undefined) { updateExpression += ", title = :t"; expressionAttributeValues[":t"] = updates.title.trim(); }
-            if (updates.date !== undefined) { updateExpression += ", #dt = :d"; expressionAttributeNames["#dt"] = "date"; expressionAttributeValues[":d"] = updates.date; }
-            if (updates.clientEmail !== undefined) { updateExpression += ", clientEmail = :ce"; expressionAttributeValues[":ce"] = updates.clientEmail.trim(); }
-            if (updates.notes !== undefined) { updateExpression += ", notes = :n"; expressionAttributeValues[":n"] = updates.notes.trim(); }
-            // Potentially add status update if allowed through this endpoint, e.g., for cancellation
-            // if (updates.status !== undefined && ['Scheduled', 'Cancelled'].includes(updates.status)) { 
-            //    updateExpression += ", #st = :s"; expressionAttributeNames["#st"] = "status"; expressionAttributeValues[":s"] = updates.status; 
-            // }
-            
+            if (updates.title !== undefined) { 
+                updateExpression += ", title = :t"; 
+                expressionAttributeValues[":t"] = updates.title.trim(); 
+            }
+            if (updates.date !== undefined) { 
+                updateExpression += ", #dt = :d"; // 'date' is a reserved keyword
+                expressionAttributeNames["#dt"] = "date"; 
+                expressionAttributeValues[":d"] = updates.date; 
+            }
+            if (updates.clientEmail !== undefined) { 
+                updateExpression += ", clientEmail = :ce"; 
+                expressionAttributeValues[":ce"] = updates.clientEmail.trim(); 
+            }
+            if (updates.notes !== undefined) { 
+                updateExpression += ", notes = :n"; 
+                expressionAttributeValues[":n"] = updates.notes.trim(); 
+            }
+            // Add other updatable fields here if necessary (e.g., status if allowed)
+
             if (Object.keys(expressionAttributeValues).length <= 1) { // Only :ua is present
                  return res.status(400).json({ success: false, message: 'No valid fields provided for update.' });
             }
@@ -105,7 +130,7 @@ export default async function handler(req, res) {
                 Key: { id: meetingId },
                 UpdateExpression: updateExpression,
                 ExpressionAttributeValues: expressionAttributeValues,
-                ReturnValues: "ALL_NEW"
+                ReturnValues: "ALL_NEW" // Returns the item as it appears after the update
             };
             if (Object.keys(expressionAttributeNames).length > 0) {
                 updateParams.ExpressionAttributeNames = expressionAttributeNames;
@@ -122,7 +147,9 @@ export default async function handler(req, res) {
     } else if (req.method === 'DELETE') {
         try {
             const { meeting, error, status, message } = await getMeetingAndVerifyOwnership(meetingId, userId);
-            if (error) return res.status(status).json({ success: false, message });
+            if (error) {
+                return res.status(status).json({ success: false, message });
+            }
 
             const deleteParams = {
                 TableName: MEETINGS_TABLE_NAME,
@@ -130,14 +157,14 @@ export default async function handler(req, res) {
             };
             await docClient.send(new DeleteCommand(deleteParams));
             
-            // PRODUCTION TODO: Implement robust cascading delete logic.
+            // PRODUCTION TODO: Implement robust cascading delete logic for associated resources.
             // This is critical to avoid orphaned data and unnecessary storage costs.
             // This might involve:
             // 1. Getting the meeting.recordingId.
             // 2. Deleting the corresponding item from RECORDINGS_ANALYSIS_TABLE_NAME.
             // 3. Deleting the audio file from S3 (using s3AudioPath from RECORDINGS_ANALYSIS_TABLE_NAME).
             // 4. Deleting PDF from S3 if stored (using pdfReportS3Path).
-            // 5. Deleting Q&A history from QNA_HISTORY_TABLE_NAME if used.
+            // 5. Deleting Q&A history from RECORDINGS_ANALYSIS_TABLE_NAME.interactiveQnAHistory or a separate table.
             // This complex cleanup is often best handled by a separate, asynchronously invoked Lambda
             // (e.g., triggered by a DynamoDB Stream on the MEETINGS_TABLE_NAME, or called by this function).
             console.log(`API: Meeting ${meetingId} deleted by user ${userId}. Associated recordingId: ${meeting.recordingId}. Manual or automated cleanup of related resources (S3 audio, analysis data) is required.`);
