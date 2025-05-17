@@ -264,9 +264,14 @@
                 noMeetingsMessage.textContent = "Fetching meetings...";
                 noMeetingsMessage.classList.remove('hidden'); // Show fetching message
             }
-            meetings = await fetchMeetingsAPI(); 
+            const response = await fetchMeetingsAPI();
+            if (!response || !response.success || !response.data) {
+                throw new Error('Invalid response from server');
+            }
+            meetings = response.data;
             renderSalesMeetingList(); // This will hide noMeetingsMessage if meetings are found
         } catch (error) {
+            console.error('Error fetching meetings:', error);
             if (noMeetingsMessage) {
                 noMeetingsMessage.textContent = "Could not load meetings. Please try refreshing.";
                 noMeetingsMessage.classList.remove('hidden');
@@ -399,13 +404,13 @@
             }
 
             // Check if result exists and has required fields
-            if (!result || !result.id) {
+            if (!result || !result.success || !result.data) {
                 throw new Error('Invalid response from server. Please try again.');
             }
 
             // Add the new meeting to local cache if it's a creation
-            if (!meetingId && result) {
-                meetings = [result, ...meetings];
+            if (!meetingId && result.data) {
+                meetings = [result.data, ...meetings];
             }
 
             try {
