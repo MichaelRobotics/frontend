@@ -274,11 +274,11 @@
             // Handle both direct array response and wrapped response format
             if (Array.isArray(response)) {
                 meetings = response;
-            } else if (response && response.data && Array.isArray(response.data)) {
+            } else if (response && response.success && Array.isArray(response.data)) {
                 meetings = response.data;
             } else {
-                console.error('Invalid API Response format:', response);
-                throw new Error('Invalid response format from server');
+                console.error('Invalid API Response:', { response }); // Debug log
+                throw new Error('Invalid response from server');
             }
             
             console.log('Processed meetings:', meetings); // Debug log
