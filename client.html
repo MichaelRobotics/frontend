@@ -39,10 +39,9 @@
             // Get the view container and inject the HTML
             const viewContainer = document.getElementById('client-view-container');
             if (viewContainer && typeof ClientView !== 'undefined' && typeof SharedAppLogic !== 'undefined') {
-                // First inject the HTML
-                viewContainer.innerHTML = ClientView.getHTML();
+                viewContainer.innerHTML = ClientView.getHTML(); // Inject the view's HTML
                 
-                // Then initialize the view with callbacks
+                // Initialize client view with all required callbacks
                 ClientView.init(
                     SharedAppLogic.showGlobalNotification,
                     (view) => {
