@@ -38,23 +38,14 @@ if (REGION && MEETINGS_TABLE_NAME && RECORDINGS_ANALYSIS_TABLE_NAME) {
 }
 
 async function getRecordingAnalysis(recordingId) {
-    if (!recordingId) {
-        return null;
-    }
-
-    try {
-        const params = {
-            TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
-            Key: { 
-                recordingId: recordingId
-            }
-        };
-        const { Item } = await docClient.send(new GetCommand(params));
-        return Item;
-    } catch (error) {
-        console.error(`Error fetching recording analysis for ${recordingId}:`, error);
-        return null;
-    }
+    const params = {
+        TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
+        Key: { 
+            recordingId: recordingId
+        }
+    };
+    const { Item } = await docClient.send(new GetCommand(params));
+    return Item;
 }
 
 export default async function handler(req, res) {
@@ -97,79 +88,33 @@ export default async function handler(req, res) {
             return res.status(401).json({ success: false, message: 'Invalid Access Code.' });
         }
 
-        // Case 3: Check meeting status
-        if (meeting.status === 'Scheduled') {
-            return res.status(200).json({
-                success: true,
-                status: 'scheduled',
-                meetingDetails: {
-                    title: meeting.title,
-                    date: meeting.date,
-                    meetingId: meeting.id
-                }
-            });
+        // Case 3: Check if analysis is complete
+        if (meeting.status !== 'Completed' || !meeting.recordingId) {
+            return res.status(403).json({ success: false, message: 'Meeting analysis is not yet complete.' });
         }
 
-        // Case 4: If meeting has a recording, check analysis status
-        if (meeting.recordingId) {
-            const recordingAnalysis = await getRecordingAnalysis(meeting.recordingId);
-            
-            if (!recordingAnalysis) {
-                return res.status(200).json({
-                    success: true,
-                    status: 'recording_not_started',
-                    message: 'Meeting is scheduled but recording has not started yet.',
-                    meetingDetails: {
-                        title: meeting.title,
-                        date: meeting.date,
-                        meetingId: meeting.id
-                    }
-                });
-            }
+        const recordingAnalysis = await getRecordingAnalysis(meeting.recordingId);
 
-            if (recordingAnalysis.analysisStatus !== 'completed') {
-                return res.status(200).json({
-                    success: true,
-                    status: 'processing',
-                    message: 'Analysis is still in progress. Please try again later.',
-                    meetingDetails: {
-                        title: meeting.title,
-                        date: meeting.date,
-                        meetingId: meeting.id
-                    }
-                });
-            }
-
-            // Return analysis data if available
-            const fullAnalysis = recordingAnalysis.analysisData;
-            const clientSpecificAnalysisData = {
-                summary: fullAnalysis.clientAnalysis?.tailoredSummary || fullAnalysis.generalSummary || "Summary not available.",
-                keyPoints: fullAnalysis.clientAnalysis?.keyDecisionsAndCommitments || [],
-                actionItems: fullAnalysis.clientAnalysis?.actionItemsRelevantToClient || [],
-                questions: fullAnalysis.clientAnalysis?.questionsAnsweredForClient || [],
-            };
-
-            return res.status(200).json({
-                success: true,
-                status: 'completed',
-                analysisData: clientSpecificAnalysisData,
-                recordingId: meeting.recordingId,
-                title: meeting.title,
-                date: meeting.date,
-                meetingId: meeting.id
-            });
+        if (!recordingAnalysis || !recordingAnalysis.analysisData || recordingAnalysis.analysisStatus !== 'completed') {
+            return res.status(403).json({ success: false, message: 'Analysis is still in progress. Please try again later.' });
         }
 
-        // Case 5: If we get here, meeting exists but no recording
-        return res.status(200).json({
+        const fullAnalysis = recordingAnalysis.analysisData;
+        const clientSpecificAnalysisData = {
+            summary: fullAnalysis.clientAnalysis?.tailoredSummary || fullAnalysis.generalSummary || "Summary not available.",
+            keyPoints: fullAnalysis.clientAnalysis?.keyDecisionsAndCommitments || [],
+            actionItems: fullAnalysis.clientAnalysis?.actionItemsRelevantToClient || [],
+            questions: fullAnalysis.clientAnalysis?.questionsAnsweredForClient || [],
+        };
+
+        console.log(`API: Client access validated for shareableId ${shareableId}, serving analysis for recordingId ${meeting.recordingId}`);
+        res.status(200).json({
             success: true,
-            status: 'no_recording',
-            message: 'Meeting exists but no recording has been made yet.',
-            meetingDetails: {
-                title: meeting.title,
-                date: meeting.date,
-                meetingId: meeting.id
-            }
+            analysisData: clientSpecificAnalysisData,
+            recordingId: meeting.recordingId,
+            title: meeting.title,
+            date: meeting.date,
+            meetingId: meeting.id
         });
 
     } catch (error) {

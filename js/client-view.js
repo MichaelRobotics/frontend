@@ -15,17 +15,17 @@ const ClientView = (function() {
 
     function getHTML() {
         const headerHTML = `
-            <header class="bg-gradient-to-r from-green-600 to-green-700 text-white shadow-xl sticky top-0 z-40">
-                <div class="container mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center">
-                    <h1 class="text-xl sm:text-2xl font-bold mb-3 sm:mb-0 text-center sm:text-left tracking-tight flex items-center">
-                        <i class="fas fa-users mr-3 text-2xl opacity-90"></i>Client Meeting Portal
-                    </h1>
+        <header class="bg-gradient-to-r from-green-600 to-green-700 text-white shadow-xl sticky top-0 z-40">
+            <div class="container mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center">
+                <h1 class="text-xl sm:text-2xl font-bold mb-3 sm:mb-0 text-center sm:text-left tracking-tight flex items-center">
+                    <i class="fas fa-users mr-3 text-2xl opacity-90"></i>Client Meeting Portal
+                </h1>
                     <div id="user-controls-client" class="fade-in">
                         <button id="main-menu-btn-client" class="px-4 py-2 text-sm font-medium text-white bg-white/10 hover:bg-white/20 rounded-lg transition-colors btn-hover">
                             <i class="fas fa-home mr-2"></i>Main Site
-                        </button>
-                    </div>
+                    </button>
                 </div>
+            </div>
             </header>`;
 
         const footerHTML = `
@@ -34,10 +34,10 @@ const ClientView = (function() {
             </footer>`;
 
         const mainContentHTML = `
-            <main class="flex-grow container mx-auto p-5 sm:p-8">
+        <main class="flex-grow container mx-auto p-5 sm:p-8">
                 <div id="client-dashboard-content-area" class="view-section max-w-5xl mx-auto glass-effect p-7 sm:p-10 fade-in">
                     <p id="client-page-message" class="text-xl text-gray-500 text-center py-10">Loading analysis data...</p>
-                </div>
+                    </div>
             </main>`;
 
         return headerHTML + mainContentHTML + footerHTML;
@@ -273,8 +273,8 @@ const ClientView = (function() {
             setButtonLoadingStateCallback = setLoadStateCb;
             queryAnalysisAPI = queryAnalysis;
             downloadAnalysisPdfAPI = downloadPdf;
-
-            initDOMReferences();
+            
+            initDOMReferences(); 
 
             const mainMenuBtn = document.getElementById('main-menu-btn-client');
             if (mainMenuBtn) {
