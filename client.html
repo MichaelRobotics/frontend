@@ -4,8 +4,92 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Client Meeting Portal - Meeting Analysis System</title>
-    <link rel="stylesheet" href="css/styles.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            --glass-opacity: 0.8;
+            --main-accent-color: #2563eb;
+            --secondary-accent-color: #0ea5e9;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+            background: var(--primary-gradient);
+            color: #1f2937;
+            line-height: 1.7;
+        }
+        .glass-effect {
+            background: rgba(255, 255, 255, var(--glass-opacity));
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+        }
+        .btn-hover {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .btn-hover:active {
+            transform: translateY(0);
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .analysis-tab {
+            transition: all 0.2s ease;
+            border-bottom: 2px solid transparent;
+        }
+        .analysis-tab.active {
+            color: #059669;
+            border-bottom-color: #059669;
+            font-weight: 600;
+        }
+        .analysis-panel {
+            transition: opacity 0.3s ease;
+        }
+        .analysis-panel.hidden {
+            display: none;
+        }
+        .custom-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            background-color: rgba(255, 255, 255, 0.7);
+            transition: all 0.2s ease;
+        }
+        .custom-input:focus {
+            outline: none;
+            border-color: #059669;
+            box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1);
+        }
+        .btn-primary-green {
+            background: linear-gradient(to right, #059669, #10b981);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        .btn-primary-green:hover {
+            background: linear-gradient(to right, #047857, #059669);
+        }
+        .view-section {
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+    </style>
 </head>
 <body class="flex flex-col min-h-screen bg-gray-50">
     <div id="client-view-container" class="flex-grow">

@@ -21,8 +21,8 @@ const ClientView = (function() {
                         <i class="fas fa-users mr-3 text-2xl opacity-90"></i>Client Meeting Portal
                     </h1>
                     <div id="user-controls-client" class="fade-in">
-                        <button id="main-menu-btn-client" class="btn-header btn-hover px-4 py-2 transition mr-2 text-sm sm:text-base font-medium">
-                            <i class="fas fa-home mr-2 icon-hover"></i>Main Site
+                        <button id="main-menu-btn-client" class="px-4 py-2 text-sm font-medium text-white bg-white/10 hover:bg-white/20 rounded-lg transition-colors btn-hover">
+                            <i class="fas fa-home mr-2"></i>Main Site
                         </button>
                     </div>
                 </div>
@@ -67,7 +67,7 @@ const ClientView = (function() {
                 <div id="questions-content-client" class="analysis-panel hidden">
                     <form id="question-form-client" class="mb-6">
                         <div class="flex gap-2">
-                            <input type="text" id="question-input-client" class="flex-grow custom-input" placeholder="Ask a question about the meeting...">
+                            <input type="text" id="question-input-client" class="custom-input flex-grow" placeholder="Ask a question about the meeting...">
                             <button type="submit" id="ask-button-client" class="btn-primary-green btn-hover">
                                 <span class="button-text">Ask</span>
                                 <span class="button-loader hidden"><i class="fas fa-spinner fa-spin"></i></span>
