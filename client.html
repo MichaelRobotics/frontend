@@ -99,15 +99,15 @@
     <script src="js/shared-app-logic.js"></script>
     <script src="js/client-view.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             SharedAppLogic.initGlobalNotifications();
 
             const viewContainer = document.getElementById('client-view-container');
             if (viewContainer && typeof ClientView !== 'undefined') {
-                // Step 1: Inject the basic page shell (header, main content area, footer)
+                // Step 1: Inject the basic page shell
                 viewContainer.innerHTML = ClientView.getHTML();
                 
-                // Step 2: Initialize ClientView (sets up callbacks, basic DOM refs like clientDashboardContentArea)
+                // Step 2: Initialize ClientView
                 ClientView.init(
                     SharedAppLogic.showGlobalNotification,
                     (targetView) => {
@@ -120,23 +120,43 @@
                     SharedAppLogic.downloadAnalysisPdfAPI
                 );
 
-                // Step 3: Check sessionStorage and render content accordingly
-                const status = sessionStorage.getItem('clientAccessStatus');
-                const storedDataString = sessionStorage.getItem('clientMeetingData');
+                // Step 3: Get URL parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                const shareableId = urlParams.get('shareableId');
+                const accessCode = urlParams.get('accessCode');
 
-                if (typeof ClientView.populateAndShowDashboard === 'function') {
-                    ClientView.populateAndShowDashboard(status, storedDataString);
-                } else {
-                    console.error("populateAndShowDashboard function not found in ClientView.");
-                    const displayArea = document.getElementById('client-dashboard-content-area');
-                    if (displayArea) {
-                        displayArea.innerHTML = "<p class='text-center p-8 text-red-500'>Page loading error. Please try again from the main site.</p>";
-                    }
+                if (!shareableId || !accessCode) {
+                    ClientView.populateAndShowDashboard('error', JSON.stringify({
+                        message: 'Missing access credentials. Please try again from the main page.'
+                    }));
+                    return;
                 }
 
-                // Clean up session storage after attempting to use it
-                sessionStorage.removeItem('clientAccessStatus');
-                sessionStorage.removeItem('clientMeetingData');
+                try {
+                    // Step 4: Validate access
+                    const response = await SharedAppLogic.validateClientAccessAPI(shareableId, accessCode);
+                    
+                    if (response.success) {
+                        // Store the validated data
+                        sessionStorage.setItem('clientAccessStatus', 'success');
+                        sessionStorage.setItem('clientMeetingData', JSON.stringify(response.data));
+                        
+                        // Show the dashboard
+                        ClientView.populateAndShowDashboard('success', JSON.stringify(response.data));
+                    } else {
+                        ClientView.populateAndShowDashboard('error', JSON.stringify({
+                            message: response.message || 'Access denied. Please check your credentials.'
+                        }));
+                    }
+                } catch (error) {
+                    console.error('Access validation error:', error);
+                    ClientView.populateAndShowDashboard('error', JSON.stringify({
+                        message: 'Error validating access. Please try again.'
+                    }));
+                }
+
+                // Clean up URL parameters
+                window.history.replaceState({}, document.title, window.location.pathname);
             } else {
                 console.error("Client view container or ClientView module not found.");
                 document.body.innerHTML = "<p>Critical error loading client page.</p>";
