@@ -36,9 +36,23 @@ export default async function handler(req, res) {
         // 1. Find the meeting in MEETINGS_TABLE_NAME by its original ID and validate clientCode
         const meetingParams = {
             TableName: MEETINGS_TABLE_NAME,
-            Key: { id: meetingId }, 
+            IndexName: "MeetingIdIndex", // Use the name of the GSI you created
+            KeyConditionExpression: "id = :mid", // Query by 'id' on the GSI
+            ExpressionAttributeValues: {
+                ":mid": meetingId
+            }
         };
-        const { Item: meeting } = await docClient.send(new GetCommand(meetingParams));
+        const { Items } = await docClient.send(new QueryCommand(meetingParams));
+        
+        if (!Items || Items.length === 0) {
+            return res.status(401).json({ success: false, message: 'Invalid Meeting ID.' });
+        }
+        const meeting = Items[0]; // Assuming 'id' is globally unique, so expect 0 or 1 item
+        
+        // The rest of your validation logic using the 'meeting' object:
+        if (!meeting || meeting.clientCode !== clientCode.toUpperCase()) { 
+            return res.status(401).json({ success: false, message: 'Invalid Meeting ID or Client Code.' });
+        }        
 
         if (!meeting || meeting.clientCode !== clientCode.toUpperCase()) { 
             return res.status(401).json({ success: false, message: 'Invalid Meeting ID or Client Code.' });

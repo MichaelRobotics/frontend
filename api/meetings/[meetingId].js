@@ -41,9 +41,10 @@ async function getMeetingAndVerifyOwnership(meetingId, ownerId) {
     if (!docClient) throw new Error("DynamoDB client not initialized in getMeetingAndVerifyOwnership.");
     if (!MEETINGS_TABLE_NAME) throw new Error("MEETINGS_TABLE_NAME not configured for ownership check.");
     
+    // NEW CODE:
     const params = {
         TableName: MEETINGS_TABLE_NAME,
-        Key: { id: meetingId }, // Assuming 'id' is the Partition Key of MEETINGS_TABLE_NAME
+        Key: { userId: userId, id: meetingId },
     };
     const { Item: meeting } = await docClient.send(new GetCommand(params));
 
@@ -142,7 +143,7 @@ export default async function handler(req, res) {
 
             const updateParams = {
                 TableName: MEETINGS_TABLE_NAME,
-                Key: { id: meetingId },
+                Key: { userId: userId, id: meetingId },
                 UpdateExpression: updateExpression,
                 ExpressionAttributeValues: expressionAttributeValues,
                 ReturnValues: "ALL_NEW" // Returns the item as it appears after the update
@@ -168,7 +169,7 @@ export default async function handler(req, res) {
 
             const deleteParams = {
                 TableName: MEETINGS_TABLE_NAME,
-                Key: { id: meetingId }
+                Key: { userId: userId, id: meetingId }
             };
             await docClient.send(new DeleteCommand(deleteParams));
             

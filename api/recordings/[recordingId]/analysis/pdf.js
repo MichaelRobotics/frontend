@@ -24,6 +24,19 @@ if (REGION && RECORDINGS_ANALYSIS_TABLE_NAME) {
      console.error("DynamoDB Document Client not initialized in /api/recordings/[recordingId]/analysis/pdf.js");
 }
 
+async function getLatestRecordingAnalysisItem(docClientInstance, recordingIdToQuery) {
+    const params = {
+        TableName: process.env.RECORDINGS_ANALYSIS_TABLE_NAME, // Use environment variable
+        KeyConditionExpression: "recordingId = :rid",
+        ExpressionAttributeValues: {
+            ":rid": recordingIdToQuery
+        },
+        ScanIndexForward: false, // Sort by 'createdAt' descending
+        Limit: 1               // Get only the newest item
+    };
+    const { Items } = await docClientInstance.send(new QueryCommand(params));
+    return (Items && Items.length > 0) ? Items[0] : null;
+}
 
 export default async function handler(req, res) {
     if (req.method !== 'GET') {
@@ -49,11 +62,11 @@ export default async function handler(req, res) {
 
     try {
         // 1. Fetch analysis data from DynamoDB
-        const recordingParams = {
-            TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
-            Key: { recordingId: recordingId },
-        };
-        const { Item: recording } = await docClient.send(new GetCommand(recordingParams));
+        const recording = await getLatestRecordingAnalysisItem(docClient, recordingId);
+
+        if (!recording || !recording.analysisData || recording.analysisStatus !== 'completed') {
+            return res.status(404).json({ success: false, message: 'Completed analysis data not found for PDF generation.' });
+        }
         if (!recording || !recording.analysisData || recording.analysisStatus !== 'completed') {
             return res.status(404).json({ success: false, message: 'Completed analysis data not found for PDF generation.' });
         }

@@ -16,6 +16,20 @@ if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) {
 const ddbClient = new DynamoDBClient({ region: REGION });
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
+async function getLatestRecordingAnalysisItem(docClientInstance, recordingIdToQuery) {
+    const params = {
+        TableName: process.env.RECORDINGS_ANALYSIS_TABLE_NAME, // Use environment variable
+        KeyConditionExpression: "recordingId = :rid",
+        ExpressionAttributeValues: {
+            ":rid": recordingIdToQuery
+        },
+        ScanIndexForward: false, // Sort by 'createdAt' descending
+        Limit: 1               // Get only the newest item
+    };
+    const { Items } = await docClientInstance.send(new QueryCommand(params));
+    return (Items && Items.length > 0) ? Items[0] : null;
+}
+
 export default async function handler(req, res) {
     if (req.method !== 'GET') {
         res.setHeader('Allow', ['GET']);
@@ -39,12 +53,17 @@ export default async function handler(req, res) {
     }
 
     try {
-        const params = {
-            TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
-            Key: { recordingId: recordingId }, 
-            ProjectionExpression: "analysisStatus, analysisProgress, analysisStatusMessage, analysisErrorMessage, uploaderUserId, originalMeetingId" 
-        };
-        const { Item: recording } = await docClient.send(new GetCommand(params));
+        const recording = await getLatestRecordingAnalysisItem(docClient, recordingId); 
+
+        if (!recording) {
+            return res.status(404).json({ success: false, message: 'Recording status not found.' });
+        }
+        // The rest of the logic using 'recording' for status, progress etc. remains.
+        // Note: The ProjectionExpression from the old GetCommand should be considered if you
+        // only want specific fields after the Query for optimization, but the helper above fetches the whole item.
+        // If you keep the helper simple, ensure 'recording' has the needed fields.
+        // For status.js, the fields used are: analysisStatus, analysisProgress, analysisStatusMessage, analysisErrorMessage.
+        // These should be part of the 'recording' item fetched.
 
         if (!recording) {
             return res.status(404).json({ success: false, message: 'Recording status not found.' });
