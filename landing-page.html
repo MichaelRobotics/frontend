@@ -261,22 +261,30 @@
             </div>
         </div>
         
-        <div id="client-access-modal-overlay" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center p-4 z-[60] hidden transition-opacity duration-300 ease-in-out opacity-0">
-            <div id="client-access-modal-content" class="w-full max-w-md glass-effect p-6 sm:p-8 rounded-2xl shadow-2xl relative transform scale-95 opacity-0 transition-all duration-300 ease-out">
-                <button id="client-access-modal-close" class="absolute top-3 right-3 text-gray-500 hover:text-gray-700 text-2xl leading-none" aria-label="Close modal">&times;</button>
-                <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-5 text-center">Access Meeting Analysis</h2>
+        <div id="client-access-modal" class="modal hidden">
+            <div class="modal-content max-w-md">
+                <div class="modal-header">
+                    <h2 class="text-xl font-bold text-gray-800">Access Meeting Analysis</h2>
+                    <button class="close-modal-btn" aria-label="Close modal">&times;</button>
+                </div>
                 <form id="client-access-form-modal" class="space-y-4">
-                    <div class="client-access-modal-field">
-                        <label for="client-shareable-id-modal">Shareable Meeting ID</label>
-                        <input type="text" id="client-shareable-id-modal" placeholder="Enter Shareable ID (e.g., ABC-123)" required>
+                    <div>
+                        <label for="client-shareable-id-modal" class="block text-gray-700 mb-1.5 font-semibold text-sm">Shareable ID</label>
+                        <input type="text" id="client-shareable-id-modal" class="w-full custom-input" required placeholder="e.g., ABC123">
                     </div>
-                    <div class="client-access-modal-field">
-                        <label for="client-access-code-modal">Access Code</label>
-                        <input type="text" id="client-access-code-modal" placeholder="Enter Client Access Code" required>
+                    <div>
+                        <label for="client-access-code-modal" class="block text-gray-700 mb-1.5 font-semibold text-sm">Access Code</label>
+                        <input type="text" id="client-access-code-modal" class="w-full custom-input" required placeholder="Enter your access code">
                     </div>
-                    <button id="client-access-submit-modal" type="submit" class="w-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white p-3 rounded-lg font-semibold text-sm btn-hover shadow-md">View Analysis</button>
+                    <p id="client-access-error-modal" class="error text-sm hidden"></p>
+                    <div class="flex justify-end space-x-3 pt-2">
+                        <button type="button" class="btn-secondary-outline btn-secondary-outline-green btn-hover" onclick="closeClientAccessModal()">Cancel</button>
+                        <button type="submit" class="btn-primary-green btn-hover">
+                            <span class="button-text">Access Analysis</span>
+                            <span class="button-loader hidden"><i class="fas fa-spinner fa-spin mr-2"></i>Validating...</span>
+                        </button>
+                    </div>
                 </form>
-                <p id="client-access-error-modal" class="hidden text-red-500 text-xs sm:text-sm text-center mt-3 font-medium"></p>
             </div>
         </div>
 
@@ -505,23 +513,25 @@
         
         // --- Client Access Modal Logic ---
         function openClientAccessModal() {
-            if (!clientAccessModalOverlay || !clientAccessModalContent || !clientAccessFormModal) return;
-            clientAccessModalOverlay.classList.remove('hidden');
-             requestAnimationFrame(() => {
-                clientAccessModalOverlay.classList.add('opacity-100');
-                clientAccessModalContent.classList.remove('opacity-0', 'scale-95');
-                clientAccessModalContent.classList.add('opacity-100', 'scale-100');
-            });
-            if(clientAccessErrorModal) clientAccessErrorModal.classList.add('hidden');
-            if(clientAccessErrorModal) clientAccessErrorModal.textContent = '';
-            clientAccessFormModal.reset();
+            const modal = document.getElementById('client-access-modal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                document.getElementById('client-shareable-id-modal').focus();
+            }
         }
         function closeClientAccessModal() {
-            if (!clientAccessModalOverlay || !clientAccessModalContent) return;
-            clientAccessModalOverlay.classList.remove('opacity-100');
-            clientAccessModalContent.classList.remove('opacity-100', 'scale-100');
-            clientAccessModalContent.classList.add('opacity-0', 'scale-95');
-            setTimeout(() => { clientAccessModalOverlay.classList.add('hidden'); }, 300);
+            const modal = document.getElementById('client-access-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+                // Reset form and error message
+                const form = document.getElementById('client-access-form-modal');
+                const errorEl = document.getElementById('client-access-error-modal');
+                if (form) form.reset();
+                if (errorEl) {
+                    errorEl.textContent = '';
+                    errorEl.classList.add('hidden');
+                }
+            }
         }
 
         // --- Event Listeners for Modals ---

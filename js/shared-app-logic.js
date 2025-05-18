@@ -293,8 +293,11 @@ const SharedAppLogic = (() => {
     }
 
     // --- CLIENT ACCESS ---
-    async function validateClientAccessAPI(identifier, clientCode) {
-        return await makeApiRequest('/api/client/validate-access', 'POST', { shareableId: identifier, clientCode });
+    async function validateClientAccessAPI(shareableId, clientCode) {
+        return await makeApiRequest('/api/client/validate-access', 'POST', { 
+            shareableId: shareableId, 
+            clientCode: clientCode 
+        });
     }
 
     // --- UTILITIES ---
