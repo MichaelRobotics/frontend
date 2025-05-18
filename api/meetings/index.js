@@ -39,6 +39,16 @@ if (REGION && MEETINGS_TABLE_NAME) {
     console.error("DynamoDB Document Client not initialized in /api/meetings/index.js due to missing REGION or MEETINGS_TABLE_NAME.");
 }
 
+// Function to generate a shareable meeting ID
+function generateShareableId(length = 6) {
+    const characters = 'ABCDEFGHIJKLMNPQRSTUVWXYZ123456789'; // O, 0 excluded for readability
+    let result = '';
+    for (let i = 0; i < length; i++) {
+        result += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return result;
+}
+
 export default async function handler(req, res) {
     if (!docClient || !MEETINGS_TABLE_NAME) { 
         return res.status(500).json({ success: false, message: "Server configuration error for meetings API." });
@@ -90,6 +100,7 @@ export default async function handler(req, res) {
             const clientCode = Math.random().toString(36).substring(2, 8).toUpperCase();
             const recorderAccessCode = Math.random().toString(36).substring(2, 10).toUpperCase();
             const recorderLink = `recorder.html?recordingId=${recordingId}&recorderCode=${recorderAccessCode}`;
+            const shareableMeetingId = generateShareableId(); // Generate the new shareable ID
 
             const newMeeting = {
                 id: meetingId, 
@@ -100,6 +111,7 @@ export default async function handler(req, res) {
                 notes: notes ? notes.trim() : '',
                 status: 'Scheduled',
                 clientCode,
+                shareableMeetingId, // Add the new shareable ID
                 recordingId, 
                 recorderLink, 
                 recorderAccessCode, 
@@ -113,7 +125,7 @@ export default async function handler(req, res) {
                 Item: newMeeting
             };
             await docClient.send(new PutCommand(putParams));
-            console.log(`API: Meeting ${meetingId} created for user ${userId} with linked recordingId ${recordingId}`);
+            console.log(`API: Meeting ${meetingId} created for user ${userId} with Shareable ID ${shareableMeetingId}`);
             res.status(201).json({ success: true, message: 'Meeting created successfully', data: newMeeting }); 
 
         } catch (error) {
