@@ -29,8 +29,17 @@ if (missingEnvVars.length > 0) {
 let docClient;
 if (REGION && MEETINGS_TABLE_NAME) {
     try {
-    const ddbClient = new DynamoDBClient({ region: REGION });
-    docClient = DynamoDBDocumentClient.from(ddbClient);
+        const ddbClient = new DynamoDBClient({ region: REGION });
+        docClient = DynamoDBDocumentClient.from(ddbClient, {
+            marshallOptions: {
+                convertEmptyValues: true,
+                removeUndefinedValues: true,
+                convertClassInstanceToMap: true
+            },
+            unmarshallOptions: {
+                wrapNumbers: false
+            }
+        });
         console.log(`DynamoDB client initialized successfully for region: ${REGION}`);
     } catch (error) {
         console.error("Failed to initialize DynamoDB client:", error);
