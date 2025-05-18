@@ -14,6 +14,21 @@ if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) {
 }
 
 let docClient;
+
+async function getLatestRecordingAnalysisItem(docClientInstance, recordingIdToQuery) {
+    const params = {
+        TableName: process.env.RECORDINGS_ANALYSIS_TABLE_NAME, // Use environment variable
+        KeyConditionExpression: "recordingId = :rid",
+        ExpressionAttributeValues: {
+            ":rid": recordingIdToQuery
+        },
+        ScanIndexForward: false, // Sort by 'createdAt' descending
+        Limit: 1               // Get only the newest item
+    };
+    const { Items } = await docClientInstance.send(new QueryCommand(params));
+    return (Items && Items.length > 0) ? Items[0] : null;
+}
+
 try {
     if (REGION && RECORDINGS_ANALYSIS_TABLE_NAME) {
 const ddbClient = new DynamoDBClient({ region: REGION });
@@ -52,14 +67,11 @@ export default async function handler(req, res) {
     }
 
     try {
-        const params = {
-            TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
-            Key: { 
-                recordingId: recordingId,
-                createdAt: recording.createdAt // Add sort key for versioning
-            }
-        };
-        const { Item: recording } = await docClient.send(new GetCommand(params));
+        const recording = await getLatestRecordingAnalysisItem(docClient, recordingId);
+
+        if (!recording || recording.analysisStatus !== 'completed' || !recording.analysisData) {
+            return res.status(404).json({ success: false, message: 'Completed analysis not found or not ready for this recording.' });
+        }
 
         if (!recording || recording.analysisStatus !== 'completed' || !recording.analysisData) {
             return res.status(404).json({ success: false, message: 'Completed analysis not found or not ready for this recording.' });

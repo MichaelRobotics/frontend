@@ -158,15 +158,14 @@ export default async function handler(req, res) {
         
         const updateQnAParams = {
             TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
-            Key: { recordingId },
-            // Initialize interactiveQnAHistory as an empty list if it doesn't exist, then append.
+            Key: { recordingId: recordingId, createdAt: recording.createdAt }, // Use 'createdAt' from the 'recording' item fetched earlier
             UpdateExpression: "SET #ad.#ih = list_append(if_not_exists(#ad.#ih, :empty_list), :qnaEntryVal)",
             ExpressionAttributeNames: { 
-                "#ad": "analysisData", // 'analysisData' is a top-level attribute (Map)
-                "#ih": "interactiveQnAHistory" // 'interactiveQnAHistory' is an attribute within the 'analysisData' map
+                "#ad": "analysisData",
+                "#ih": "interactiveQnAHistory"
             },
             ExpressionAttributeValues: { 
-                ":qnaEntryVal": [qnaEntry], // list_append expects lists as arguments
+                ":qnaEntryVal": [qnaEntry],
                 ":empty_list": [] 
             }
         };

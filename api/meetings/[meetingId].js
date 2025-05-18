@@ -44,7 +44,7 @@ async function getMeetingAndVerifyOwnership(meetingId, ownerId) {
     // NEW CODE:
     const params = {
         TableName: MEETINGS_TABLE_NAME,
-        Key: { userId: userId, id: meetingId },
+        Key: { userId: ownerId, id: meetingId },
     };
     const { Item: meeting } = await docClient.send(new GetCommand(params));
 
