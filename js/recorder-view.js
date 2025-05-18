@@ -189,26 +189,14 @@ const RecorderView = (() => {
     async function refreshMeetingsForRecorder() {
         try {
             if (noMeetingsMessageRec) noMeetingsMessageRec.textContent = "Fetching meetings...";
-            const response = await fetchMeetingsAPI();
-            
-            // Handle both direct array response and wrapped response format
-            if (Array.isArray(response)) {
-                meetings = response;
-            } else if (response && response.success && Array.isArray(response.data)) {
-                meetings = response.data;
-            } else {
-                console.error('Invalid API Response:', { response });
-                throw new Error('Invalid response from server');
-            }
-            
+            meetings = await fetchMeetingsAPI(); 
             renderRecorderMeetingList();
-            if (noMeetingsMessageRec && meetings.filter(m => m.status === 'Scheduled' || m.recorderId).length === 0) {
+             if (noMeetingsMessageRec && meetings.filter(m => m.status === 'Scheduled' || m.recorderId).length === 0) {
                 noMeetingsMessageRec.textContent = 'No meetings found or scheduled for recording.';
             } else if (noMeetingsMessageRec) {
                 noMeetingsMessageRec.classList.add('hidden');
             }
         } catch (error) {
-            console.error('Error fetching meetings:', error);
             if (noMeetingsMessageRec) noMeetingsMessageRec.textContent = "Could not load meetings. Please try refreshing.";
         }
     }
@@ -748,201 +736,36 @@ const RecorderView = (() => {
         }
     }
 
-    function renderRecorderMeetingList() {
-        if (!meetingListRec || !noMeetingsMessageRec) return;
-        meetingListRec.innerHTML = '';
-        
-        if (!Array.isArray(meetings) || meetings.length === 0) { 
-            if (noMeetingsMessageRec) {
-                noMeetingsMessageRec.textContent = 'No meetings found or scheduled for recording.';
-                noMeetingsMessageRec.classList.remove('hidden'); 
-            }
-            return; 
-        }
-        if (noMeetingsMessageRec) noMeetingsMessageRec.classList.add('hidden');
-        
-        // Filter meetings to show only those that are scheduled or have a recorderId
-        const filteredMeetings = meetings.filter(m => m.status === 'Scheduled' || m.recorderId);
-        const sortedMeetings = [...filteredMeetings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        
-        sortedMeetings.forEach((meeting, index) => {
-            const item = document.createElement('div');
-            item.className = 'meeting-item-card flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 fade-in';
-            item.style.setProperty('--delay', `${index * 0.05}s`);
-            item.dataset.id = meeting.id;
-            
-            let statusClass = 'status-cancelled';
-            if (meeting.status === 'Scheduled') statusClass = 'status-scheduled';
-            else if (meeting.status === 'Completed') statusClass = 'status-completed';
-            else if (meeting.status === 'Processing') statusClass = 'status-processing';
-            else if (meeting.status === 'Recording') statusClass = 'status-recording';
-            
-            item.innerHTML = `
-                <div class="flex-grow">
-                    <h3 class="text-lg font-semibold text-blue-700 mb-1">${escapeHtml(meeting.title)}</h3>
-                    <p class="text-sm text-gray-600">With: ${escapeHtml(meeting.clientEmail)}</p>
-                    <p class="text-sm text-gray-500">Date: ${new Date(meeting.date).toLocaleString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-                </div>
-                <div class="flex items-center mt-2 sm:mt-0">
-                    <span class="status-indicator ${statusClass} mr-2"></span>
-                    <span class="text-sm font-medium text-gray-700">${escapeHtml(meeting.status)}</span>
-                </div>`;
-            
-            item.addEventListener('click', () => {
-                if (meeting.status === 'Scheduled') {
-                    handleStartScheduledRecording(meeting.id);
-                } else if (meeting.status === 'Completed' && meeting.analysisData) {
-                    handleViewRecorderAnalysis(meeting.recorderId);
-                }
-            });
-            
-            meetingListRec.appendChild(item);
-        });
-    }
-
-    async function handleStartScheduledRecording(meetingId) {
-        try {
-            const meeting = getMeetingByIdCallback(meetingId);
-            if (!meeting) {
-                showNotificationCallback("Meeting not found.", "error");
-                return;
-            }
-
-            if (meeting.status !== 'Scheduled') {
-                showNotificationCallback("This meeting is not in a scheduled state.", "error");
-                return;
-            }
-
-            const newRecordingId = `rec-${generateIdCallback(8)}`;
-            currentRecorderMeeting = {
-                id: meetingId,
-                recorderId: newRecordingId,
-                title: meeting.title,
-                date: meeting.date,
-                clientEmail: meeting.clientEmail,
-                notes: meeting.notes,
-                audioQuality: audioQualitySelectElemRec ? audioQualitySelectElemRec.value : 'medium'
-            };
-
-            if (meetingTitleInputElemRec) meetingTitleInputElemRec.value = currentRecorderMeeting.title;
-            if (meetingNotesElemRec) meetingNotesElemRec.value = currentRecorderMeeting.notes;
-            if (recordingMeetingTitleElemRec) recordingMeetingTitleElemRec.textContent = `Recording: ${currentRecorderMeeting.title}`;
-
-            showRecorderView('recording');
-            await startActualRecording();
-        } catch (error) {
-            console.error("Error starting scheduled recording:", error);
-            showNotificationCallback(`Error starting recording: ${error.message}`, "error");
-        }
-    }
-
-    async function handleStartAdHocRecording() {
-        try {
-            const newRecordingId = `rec-${generateIdCallback(8)}`;
-            currentRecorderMeeting = {
-                id: newRecordingId,
-                recorderId: newRecordingId,
-                title: "New Ad-hoc Recording",
-                date: new Date().toISOString(),
-                status: 'pending_start',
-                audioQuality: audioQualitySelectElemRec ? audioQualitySelectElemRec.value : 'medium'
-            };
-
-            if (meetingTitleInputElemRec) meetingTitleInputElemRec.value = currentRecorderMeeting.title;
-            if (meetingNotesElemRec) meetingNotesElemRec.value = '';
-            if (recordingMeetingTitleElemRec) recordingMeetingTitleElemRec.textContent = `Recording: ${currentRecorderMeeting.title}`;
-
-            showRecorderView('recording');
-            await startActualRecording();
-        } catch (error) {
-            console.error("Error starting ad-hoc recording:", error);
-            showNotificationCallback(`Error starting recording: ${error.message}`, "error");
-        }
-    }
-
-    function showRecorderView(view) {
-        if (!meetingListViewRec || !recordingViewRec || !analysisViewRec) return;
-        
-        // Hide all views first
-        meetingListViewRec.classList.add('hidden');
-        recordingViewRec.classList.add('hidden');
-        analysisViewRec.classList.add('hidden');
-        
-        // Show the requested view
-        switch (view) {
-            case 'list':
-                meetingListViewRec.classList.remove('hidden');
-                if (backToListBtnRec) backToListBtnRec.classList.add('hidden');
-                break;
-            case 'recording':
-                recordingViewRec.classList.remove('hidden');
-                if (backToListBtnRec) backToListBtnRec.classList.remove('hidden');
-                break;
-            case 'analysis':
-                analysisViewRec.classList.remove('hidden');
-                if (backToListBtnRec) backToListBtnRec.classList.remove('hidden');
-                break;
-            default:
-                console.error("Invalid view requested:", view);
-                return;
-        }
-    }
-
-    function init(
-        showNotification,
-        switchView,
-        setButtonLoadingState,
-        getMeetingById,
-        updateMeeting,
-        addMeeting,
-        fetchMeetings,
-        uploadRecording,
-        fetchAnalysisStatus,
-        fetchAnalysisData,
-        downloadAnalysisPdf,
-        generateId
-    ) {
-        // Store callbacks
-        showNotificationCallback = showNotification;
-        switchViewCallback = switchView;
-        setButtonLoadingStateCallback = setButtonLoadingState;
-        getMeetingByIdCallback = getMeetingById;
-        updateMeetingCallback = updateMeeting;
-        addMeetingCallback = addMeeting;
-        fetchMeetingsAPI = fetchMeetings;
-        uploadRecordingAPI = uploadRecording;
-        fetchAnalysisStatusAPI = fetchAnalysisStatus;
-        fetchAnalysisDataAPI = fetchAnalysisData;
-        downloadAnalysisPdfAPI = downloadAnalysisPdf;
-        generateIdCallback = generateId;
-
-        // Initialize DOM references
-        initDOMReferences();
-
-        // Setup event listeners
-        setupEventListeners();
-
-        // Load available audio inputs
-        navigator.mediaDevices.enumerateDevices()
-            .then(devices => {
-                const audioInputs = devices.filter(device => device.kind === 'audioinput');
-                if (audioInputSelectElemRec) {
-                    audioInputSelectElemRec.innerHTML = audioInputs.map(input => 
-                        `<option value="${input.deviceId}">${input.label || `Microphone ${audioInputSelectElemRec.length + 1}`}</option>`
-                    ).join('');
-                }
-            })
-            .catch(err => {
-                console.error('Error getting audio devices:', err);
-                showNotificationCallback('Could not access microphone devices. Please check permissions.', 'error');
-            });
-
-        // Initial refresh of meetings
-        refreshMeetingsForRecorder();
-    }
 
     return {
-        init,
+        init: (
+            _notifyCb, _switchCb, 
+            _setLoadStateCb, 
+            _getMeetingByIdCb, _updateMeetingCb, _addMeetingCb,
+            _fetchMeetings, _uploadRecording, 
+            _fetchAnalysisStatus, _fetchAnalysis, _downloadPdf,
+            _generateId
+        ) => {
+            showNotificationCallback = _notifyCb;
+            switchViewCallback = _switchCb;
+            setButtonLoadingStateCallback = _setLoadStateCb;
+            getMeetingByIdCallback = _getMeetingByIdCb;
+            updateMeetingCallback = _updateMeetingCb;
+            addMeetingCallback = _addMeetingCb;
+            fetchMeetingsAPI = _fetchMeetings;
+            uploadRecordingAPI = _uploadRecording;
+            fetchAnalysisStatusAPI = _fetchAnalysisStatus;
+            fetchAnalysisDataAPI = _fetchAnalysis;
+            downloadAnalysisPdfAPI = _downloadPdf;
+            generateIdCallback = _generateId;
+            
+            initDOMReferences(); 
+            setupEventListeners();
+            populateAudioInputDevicesRec();
+            
+            refreshMeetingsForRecorder(); 
+            showRecorderView('list');
+        },
         getHTML,
         handleDeepLink 
     };
