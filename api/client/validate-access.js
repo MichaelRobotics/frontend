@@ -2,8 +2,9 @@
 // Handles POST /api/client/validate-access
 // This Vercel function interacts directly with DynamoDB.
 
+// At the top of /api/client/validate-access.js
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb"; // Add QueryCommand here
 
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME; 
 const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
