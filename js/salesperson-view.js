@@ -398,8 +398,11 @@
                 result = await createMeetingAPI(meetingDetails);
             }
 
-            if (!result || !result.success) {
-                throw new Error(result?.message || 'Failed to save meeting.');
+            if (!result || !result.id) { 
+                // If result is null, or doesn't have an id, something went wrong despite response.ok (unlikely here)
+                // or the API contract changed unexpectedly.
+                console.error("Unexpected result from save meeting API:", result);
+                throw new Error('Failed to save meeting or received an invalid response.');
             }
 
             await refreshMeetingsDisplay();
