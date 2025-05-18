@@ -26,8 +26,8 @@ if (missingEnvVars.length > 0) {
 let docClient;
 if (REGION && MEETINGS_TABLE_NAME) {
     try {
-        const ddbClient = new DynamoDBClient({ region: REGION });
-        docClient = DynamoDBDocumentClient.from(ddbClient);
+    const ddbClient = new DynamoDBClient({ region: REGION });
+    docClient = DynamoDBDocumentClient.from(ddbClient);
         console.log(`DynamoDB client initialized successfully for region: ${REGION}`);
     } catch (error) {
         console.error("Failed to initialize DynamoDB client:", error);
@@ -41,10 +41,9 @@ async function getMeetingAndVerifyOwnership(meetingId, ownerId) {
     if (!docClient) throw new Error("DynamoDB client not initialized in getMeetingAndVerifyOwnership.");
     if (!MEETINGS_TABLE_NAME) throw new Error("MEETINGS_TABLE_NAME not configured for ownership check.");
     
-    // NEW CODE:
     const params = {
         TableName: MEETINGS_TABLE_NAME,
-        Key: { userId: ownerId, id: meetingId },
+        Key: { id: meetingId }, // Assuming 'id' is the Partition Key of MEETINGS_TABLE_NAME
     };
     const { Item: meeting } = await docClient.send(new GetCommand(params));
 
@@ -84,7 +83,7 @@ export default async function handler(req, res) {
             }
             
             console.log(`API: Fetched meeting ${meetingId} for user ${userId}`);
-            res.status(200).json(meeting);
+            res.status(200).json({ success: true, message: 'Meeting fetched successfully', data: meeting });
 
         } catch (error) {
             console.error(`API Error fetching meeting ${meetingId}:`, error);
@@ -92,22 +91,19 @@ export default async function handler(req, res) {
         }
     } else if (req.method === 'PUT') {
         try {
-            const updates = req.body; // Expected: { title?, date?, clientEmail?, notes? }
+            const updates = req.body;
             
-            // Validate that there's something to update from the allowed fields
             if (Object.keys(updates).length === 0 || 
                 (updates.title === undefined && updates.date === undefined && updates.clientEmail === undefined && updates.notes === undefined)) {
                  return res.status(400).json({ success: false, message: 'No valid update data provided. At least one field (title, date, clientEmail, notes) is required.' });
             }
-            // Add specific validation for each field if present
             if (updates.date && isNaN(new Date(updates.date).getTime())) {
                  return res.status(400).json({ success: false, message: 'Invalid date format for update.' });
             }
-            if (updates.clientEmail && !/\S+@\S+\.\S+/.test(updates.clientEmail)) { // Basic email validation
+            if (updates.clientEmail && !/\S+@\S+\.\S+/.test(updates.clientEmail)) {
                 return res.status(400).json({ success: false, message: 'Invalid client email format for update.' });
             }
 
-            // Verify ownership before attempting update
             const { meeting: existingMeeting, error, status, message } = await getMeetingAndVerifyOwnership(meetingId, userId);
             if (error) {
                 return res.status(status).json({ success: false, message });
@@ -143,7 +139,7 @@ export default async function handler(req, res) {
 
             const updateParams = {
                 TableName: MEETINGS_TABLE_NAME,
-                Key: { userId: userId, id: meetingId },
+                Key: { id: meetingId },
                 UpdateExpression: updateExpression,
                 ExpressionAttributeValues: expressionAttributeValues,
                 ReturnValues: "ALL_NEW" // Returns the item as it appears after the update
@@ -154,7 +150,7 @@ export default async function handler(req, res) {
 
             const { Attributes: updatedMeeting } = await docClient.send(new UpdateCommand(updateParams));
             console.log(`API: Meeting ${meetingId} updated for user ${userId}`);
-            res.status(200).json(updatedMeeting);
+            res.status(200).json({ success: true, message: 'Meeting updated successfully', data: updatedMeeting });
 
         } catch (error) {
             console.error(`API Error updating meeting ${meetingId}:`, error);
@@ -169,7 +165,7 @@ export default async function handler(req, res) {
 
             const deleteParams = {
                 TableName: MEETINGS_TABLE_NAME,
-                Key: { userId: userId, id: meetingId }
+                Key: { id: meetingId }
             };
             await docClient.send(new DeleteCommand(deleteParams));
             

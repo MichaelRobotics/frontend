@@ -219,7 +219,7 @@ const SharedAppLogic = (() => {
         const data = await makeApiRequest('/api/meetings', 'GET');
         meetingsDataCache = Array.isArray(data) ? data : []; 
         console.log("[SharedAppLogic] fetchMeetingsAPI: Meetings cache updated.", meetingsDataCache.length, "meetings fetched.");
-        return meetingsDataCache;
+        return { success: true, message: 'Meetings fetched successfully', data: meetingsDataCache };
     }
 
     async function createMeetingAPI(meetingDetails) { 
@@ -293,8 +293,8 @@ const SharedAppLogic = (() => {
     }
 
     // --- CLIENT ACCESS ---
-    async function validateClientAccessAPI(meetingId, clientCode) {
-        return await makeApiRequest('/api/client/validate-access', 'POST', { meetingId, clientCode });
+    async function validateClientAccessAPI(identifier, clientCode) {
+        return await makeApiRequest('/api/client/validate-access', 'POST', { shareableId: identifier, clientCode });
     }
 
     // --- UTILITIES ---

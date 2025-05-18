@@ -29,8 +29,8 @@ if (missingEnvVars.length > 0) {
 let docClient;
 if (REGION && MEETINGS_TABLE_NAME) {
     try {
-        const ddbClient = new DynamoDBClient({ region: REGION });
-        docClient = DynamoDBDocumentClient.from(ddbClient);
+    const ddbClient = new DynamoDBClient({ region: REGION });
+    docClient = DynamoDBDocumentClient.from(ddbClient);
         console.log(`DynamoDB client initialized successfully for region: ${REGION}`);
     } catch (error) {
         console.error("Failed to initialize DynamoDB client:", error);
@@ -65,7 +65,7 @@ export default async function handler(req, res) {
             const { Items: userMeetings } = await docClient.send(new QueryCommand(params));
             
             console.log(`API: Fetched ${userMeetings ? userMeetings.length : 0} meetings for user ${userId}`);
-            res.status(200).json(userMeetings || []);
+            res.status(200).json({ success: true, message: 'Meetings fetched successfully', data: userMeetings || [] });
 
         } catch (error) {
             console.error('API Error fetching meetings:', error);
@@ -114,7 +114,7 @@ export default async function handler(req, res) {
             };
             await docClient.send(new PutCommand(putParams));
             console.log(`API: Meeting ${meetingId} created for user ${userId} with linked recordingId ${recordingId}`);
-            res.status(201).json(newMeeting); 
+            res.status(201).json({ success: true, message: 'Meeting created successfully', data: newMeeting }); 
 
         } catch (error) {
             console.error('API Error creating meeting:', error);

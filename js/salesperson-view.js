@@ -28,7 +28,7 @@
         // DOM Elements
         let meetingListView, newEditMeetingView, meetingDetailsView, newMeetingBtn, meetingList, noMeetingsMessage;
         let formTitle, newEditMeetingForm, meetingIdInputHidden, meetingTitleInput, meetingDateInput, clientEmailInput, meetingNotesInput, cancelMeetingFormBtn, saveMeetingBtn, newMeetingError;
-        let detailsMeetingTitle, detailsMeetingDate, detailsClientEmail, detailsMeetingStatus, detailsClientCode, detailsRecorderLinkAnchor, detailsMeetingNotes, editMeetingBtn, deleteMeetingBtn, downloadPdfBtnSales;
+        let detailsMeetingTitle, detailsMeetingDate, detailsClientEmail, detailsMeetingStatus, detailsClientCode, detailsShareableIdSales, detailsMeetingIdSales, detailsRecorderLinkAnchor, detailsMeetingNotes, editMeetingBtn, deleteMeetingBtn, downloadPdfBtnSales;
         let analysisNotAvailable, analysisContentWrapper, analysisTabs, analysisPanels;
         let questionForm, questionInput, askButton, questionResultWrapper, questionTextEl, answerTextEl, questionHistory;
         let backToListBtn, logoutBtnSales, mainMenuBtnSales;
@@ -120,6 +120,8 @@
                             <h3 class="text-lg font-semibold mb-2 text-purple-800">Access Details</h3>
                             <div class="space-y-1.5 text-sm">
                                 <p><strong class="text-gray-700">Client Code:</strong> <span id="details-client-code-sales" class="text-gray-600 font-mono bg-purple-100 px-1.5 py-0.5 rounded"></span> <button class="copy-code-btn text-purple-500 hover:text-purple-700 text-xs ml-1" aria-label="Copy Client Code"><i class="far fa-copy"></i></button></p>
+                                <p><strong class="text-gray-700">Shareable ID:</strong> <span id="details-shareable-id-sales" class="text-gray-600 font-mono bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-semibold"></span> <button class="copy-code-btn text-purple-500 hover:text-purple-700 text-xs ml-1" aria-label="Copy Shareable ID"><i class="far fa-copy"></i></button></p>
+                                <p><strong class="text-gray-700">System Meeting ID:</strong> <span id="details-meeting-id-sales" class="text-gray-600 font-mono bg-gray-100 px-1.5 py-0.5 rounded text-xs"></span> <button class="copy-code-btn text-purple-500 hover:text-purple-700 text-xs ml-1" aria-label="Copy System Meeting ID"><i class="far fa-copy"></i></button></p>
                                 <p><strong class="text-gray-700">Recorder Link:</strong> <a id="details-recorder-link-sales" href="#" target="_blank" class="text-purple-600 hover:underline break-all">Open Recorder</a> <button class="copy-code-btn text-purple-500 hover:text-purple-700 text-xs ml-1" aria-label="Copy Recorder Link"><i class="far fa-copy"></i></button></p>
                             </div>
                         </div>
@@ -212,6 +214,8 @@
         detailsClientEmail = viewContainer.querySelector('#details-client-email-sales');
         detailsMeetingStatus = viewContainer.querySelector('#details-meeting-status-sales');
         detailsClientCode = viewContainer.querySelector('#details-client-code-sales');
+        detailsShareableIdSales = viewContainer.querySelector('#details-shareable-id-sales');
+        detailsMeetingIdSales = viewContainer.querySelector('#details-meeting-id-sales');
         detailsRecorderLinkAnchor = viewContainer.querySelector('#details-recorder-link-sales');
         detailsMeetingNotes = viewContainer.querySelector('#details-meeting-notes-sales');
         editMeetingBtn = viewContainer.querySelector('#edit-meeting-btn-sales');
@@ -264,9 +268,17 @@
                 noMeetingsMessage.textContent = "Fetching meetings...";
                 noMeetingsMessage.classList.remove('hidden'); // Show fetching message
             }
-            meetings = await fetchMeetingsAPI(); 
+            const response = await fetchMeetingsAPI();
+            console.log('Meetings API Response:', response); // Debug log
+            if (!response || !response.success || !response.data) {
+                console.error('Invalid API Response:', { response }); // Debug log
+                throw new Error('Invalid response from server');
+            }
+            meetings = response.data;
+            console.log('Processed meetings:', meetings); // Debug log
             renderSalesMeetingList(); // This will hide noMeetingsMessage if meetings are found
         } catch (error) {
+            console.error('Error fetching meetings:', error);
             if (noMeetingsMessage) {
                 noMeetingsMessage.textContent = "Could not load meetings. Please try refreshing.";
                 noMeetingsMessage.classList.remove('hidden');
@@ -398,14 +410,23 @@
                 result = await createMeetingAPI(meetingDetails);
             }
 
-            if (!result || !result.id) { 
-                // If result is null, or doesn't have an id, something went wrong despite response.ok (unlikely here)
-                // or the API contract changed unexpectedly.
-                console.error("Unexpected result from save meeting API:", result);
-                throw new Error('Failed to save meeting or received an invalid response.');
+            // Check if result exists and has required fields
+            if (!result || !result.success || !result.data) {
+                throw new Error('Invalid response from server. Please try again.');
             }
 
-            await refreshMeetingsDisplay();
+            // Add the new meeting to local cache if it's a creation
+            if (!meetingId && result.data) {
+                meetings = [result.data, ...meetings];
+            }
+
+            try {
+                await refreshMeetingsDisplay();
+            } catch (refreshError) {
+                console.warn('Failed to refresh meetings list:', refreshError);
+                // Don't throw here, as the meeting was created successfully
+            }
+
             showSalesView('list');
             showNotificationCallback('Meeting saved successfully!', 'success');
 
@@ -441,6 +462,8 @@
             detailsMeetingStatus.className = `font-medium ${currentMeetingForAnalysis.status === 'Scheduled' ? 'text-purple-600' : currentMeetingForAnalysis.status === 'Completed' ? 'text-green-600' :  currentMeetingForAnalysis.status === 'Processing' ? 'text-yellow-600' : 'text-gray-600'}`;
         }
         if(detailsClientCode) detailsClientCode.textContent = escapeHtml(currentMeetingForAnalysis.clientCode || 'N/A');
+        if(detailsShareableIdSales) detailsShareableIdSales.textContent = escapeHtml(currentMeetingForAnalysis.shareableMeetingId || 'N/A');
+        if(detailsMeetingIdSales) detailsMeetingIdSales.textContent = escapeHtml(currentMeetingForAnalysis.id || 'N/A');
         if(detailsRecorderLinkAnchor) {
             const recorderLink = currentMeetingForAnalysis.recorderLink || "#";
             detailsRecorderLinkAnchor.href = recorderLink;

@@ -267,8 +267,8 @@
                 <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-5 text-center">Access Meeting Analysis</h2>
                 <form id="client-access-form-modal" class="space-y-4">
                     <div class="client-access-modal-field">
-                        <label for="client-meeting-id-modal">Meeting ID</label>
-                        <input type="text" id="client-meeting-id-modal" placeholder="Enter Meeting ID" required>
+                        <label for="client-shareable-id-modal">Shareable Meeting ID</label>
+                        <input type="text" id="client-shareable-id-modal" placeholder="Enter Shareable ID (e.g., ABC-123)" required>
                     </div>
                     <div class="client-access-modal-field">
                         <label for="client-access-code-modal">Access Code</label>
@@ -715,24 +715,24 @@
             showAppNotification('You have been signed out.', 'info');
         }
         }
-        async function handleClientAccessSubmit(meetingId, accessCode) {
-            if (!meetingId || !accessCode) {
+        async function handleClientAccessSubmit(shareableId, accessCode) {
+            if (!shareableId || !accessCode) {
                 if(clientAccessErrorModal){
-                    clientAccessErrorModal.textContent = 'Meeting ID and Access Code are required.';
+                    clientAccessErrorModal.textContent = 'Shareable ID and Access Code are required.';
                     clientAccessErrorModal.classList.remove('hidden');
                 }
                 return;
             }
 
             try {
-                showAppNotification(`Validating access for Meeting ID: ${meetingId}...`, 'info');
+                showAppNotification(`Validating access for Shareable ID: ${shareableId}...`, 'info');
                 
                 const response = await fetch('/api/client/validate-access', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ meetingId, clientCode: accessCode })
+                    body: JSON.stringify({ shareableId, clientCode: accessCode })
                 });
 
                 const data = await response.json();
@@ -756,7 +756,7 @@
                 
                 // Redirect to client view with the validated data
             setTimeout(() => {
-                window.location.href = `client.html?meetingId=${encodeURIComponent(meetingId)}&accessCode=${encodeURIComponent(accessCode)}`;
+                window.location.href = `client.html?shareableId=${encodeURIComponent(shareableId)}&accessCode=${encodeURIComponent(accessCode)}`;
             }, 1500);
             } catch (error) {
                 console.error('Client access error:', error);
@@ -775,9 +775,24 @@
             clientAccessFormModal.addEventListener('submit', (e) => {
                 e.preventDefault();
                 if(clientAccessErrorModal) clientAccessErrorModal.classList.add('hidden');
-                const meetingId = document.getElementById('client-meeting-id-modal').value;
-                const accessCode = document.getElementById('client-access-code-modal').value;
-                handleClientAccessSubmit(meetingId, accessCode);
+
+                const shareableId = document.getElementById('client-shareable-id-modal').value.trim();
+                const accessCode = document.getElementById('client-access-code-modal').value.trim();
+
+                if (!shareableId || !accessCode) {
+                    if(clientAccessErrorModal) {
+                        clientAccessErrorModal.textContent = 'Shareable ID and Access Code are required.';
+                        clientAccessErrorModal.classList.remove('hidden');
+                    }
+                    return;
+                }
+
+                // Redirect to client.html with parameters
+                showAppNotification('Proceeding to client view...', 'info', 1000);
+                closeClientAccessModal();
+                setTimeout(() => {
+                    window.location.href = `client.html?shareableId=${encodeURIComponent(shareableId)}&accessCode=${encodeURIComponent(accessCode)}`;
+                }, 300); // Short delay for modal to close
             });
         }
 

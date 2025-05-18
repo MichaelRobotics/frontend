@@ -2,9 +2,8 @@
 // Handles POST /api/client/validate-access
 // This Vercel function interacts directly with DynamoDB.
 
-// At the top of /api/client/validate-access.js
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb"; // Add QueryCommand here
+import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const MEETINGS_TABLE_NAME = process.env.MEETINGS_TABLE_NAME; 
 const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
@@ -37,23 +36,9 @@ export default async function handler(req, res) {
         // 1. Find the meeting in MEETINGS_TABLE_NAME by its original ID and validate clientCode
         const meetingParams = {
             TableName: MEETINGS_TABLE_NAME,
-            IndexName: "MeetingIdIndex", // Use the name of the GSI you created
-            KeyConditionExpression: "id = :mid", // Query by 'id' on the GSI
-            ExpressionAttributeValues: {
-                ":mid": meetingId
-            }
+            Key: { id: meetingId }, 
         };
-        const { Items } = await docClient.send(new QueryCommand(meetingParams));
-        
-        if (!Items || Items.length === 0) {
-            return res.status(401).json({ success: false, message: 'Invalid Meeting ID.' });
-        }
-        const meeting = Items[0]; // Assuming 'id' is globally unique, so expect 0 or 1 item
-        
-        // The rest of your validation logic using the 'meeting' object:
-        if (!meeting || meeting.clientCode !== clientCode.toUpperCase()) { 
-            return res.status(401).json({ success: false, message: 'Invalid Meeting ID or Client Code.' });
-        }        
+        const { Item: meeting } = await docClient.send(new GetCommand(meetingParams));
 
         if (!meeting || meeting.clientCode !== clientCode.toUpperCase()) { 
             return res.status(401).json({ success: false, message: 'Invalid Meeting ID or Client Code.' });
