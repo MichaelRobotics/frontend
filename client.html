@@ -9,11 +9,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/main-app-styles.css">
 </head>
-<body class="client-view-active">
-    <div id="app-notification" class="fixed bottom-6 right-6 w-full max-w-sm glass-effect p-5 shadow-2xl pointer-events-none opacity-0 transform translate-x-full rounded-xl z-[100] hidden">
+<body class="client-view-active"> <div id="app-notification" class="fixed bottom-6 right-6 w-full max-w-sm glass-effect p-5 shadow-2xl pointer-events-none opacity-0 transform translate-x-full rounded-xl z-[100] hidden">
         <div class="flex items-start">
             <div id="app-notification-icon-container" class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full mr-3.5">
-            </div>
+                </div>
             <div class="flex-grow">
                 <p id="app-notification-message" class="text-sm text-gray-800 font-semibold"></p>
             </div>
@@ -32,52 +31,33 @@
     <script src="js/shared-app-logic.js"></script>
     <script src="js/client-view.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', async () => {
+        document.addEventListener('DOMContentLoaded', () => {
             // Initialize global notifications
             SharedAppLogic.initGlobalNotifications();
 
-            // Get the view container and inject the HTML
-            const viewContainer = document.getElementById('client-view-container');
-            if (viewContainer && typeof ClientView !== 'undefined' && typeof SharedAppLogic !== 'undefined') {
-                viewContainer.innerHTML = ClientView.getHTML(); // Inject the view's HTML
-                
-                // Initialize client view with all required callbacks
-                ClientView.init(
-                    SharedAppLogic.showGlobalNotification,
-                    (view) => {
-                        if (view === 'index') {
-                            window.location.href = 'landing-page.html';
-                        }
-                    },
-                    SharedAppLogic.setButtonLoadingState,
-                    SharedAppLogic.validateClientAccess,
-                    SharedAppLogic.fetchAnalysisData,
-                    SharedAppLogic.queryAnalysis,
-                    SharedAppLogic.downloadAnalysisPdf
-                );
+            // Initialize client view
+            ClientView.init(
+                document.getElementById('client-view-container'),
+                SharedAppLogic.showGlobalNotification,
+                SharedAppLogic.setButtonLoadingState
+            );
 
-                // Check for direct access parameters
-                const urlParams = new URLSearchParams(window.location.search);
-                const shareableId = urlParams.get('shareableId');
-                const accessCode = urlParams.get('accessCode');
+            // Check for direct access parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const shareableId = urlParams.get('shareableId');
+            const accessCode = urlParams.get('accessCode');
 
-                if (shareableId && accessCode) {
-                    // Wait for DOM to be fully initialized
-                    setTimeout(() => {
-                        if (typeof ClientView.attemptDirectAccess === 'function') {
-                            ClientView.attemptDirectAccess(shareableId, accessCode);
-                        } else {
-                            // Fallback if attemptDirectAccess is not exposed: pre-fill form
-                            const idField = document.getElementById('shareable-id-client');
-                            const codeField = document.getElementById('access-code-client');
-                            if (idField) idField.value = shareableId;
-                            if (codeField) codeField.value = accessCode;
-                            SharedAppLogic.showGlobalNotification('Meeting ID & Code populated. Click "Access Meeting".', 'info', 5000);
-                        }
-                    }, 500); // Give time for DOM to initialize
+            if (shareableId && accessCode) {
+                if (typeof ClientView.attemptDirectAccess === 'function') {
+                    ClientView.attemptDirectAccess(shareableId, accessCode);
+                } else {
+                    // Fallback if attemptDirectAccess is not exposed: pre-fill form
+                    const idField = document.getElementById('shareable-id-client');
+                    const codeField = document.getElementById('access-code-client');
+                    if (idField) idField.value = shareableId;
+                    if (codeField) codeField.value = accessCode;
+                    SharedAppLogic.showGlobalNotification('Meeting ID & Code populated. Click "Access Meeting".', 'info', 5000);
                 }
-            } else {
-                console.error('Required components not found or not initialized properly');
             }
         });
     </script>

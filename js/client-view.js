@@ -219,50 +219,27 @@ const ClientView = (() => {
             if(accessErrorClient) accessErrorClient.classList.add('hidden');
 
             const response = await validateClientAccessAPI(shareableId, clientCode);
-            
-            // Check if the response indicates analysis is not complete
-            if (!response || !response.success) {
-                const errorMessage = response?.message || 'Failed to access meeting. Please check your credentials.';
-                if(accessErrorClient) {
-                    accessErrorClient.textContent = errorMessage;
-                    accessErrorClient.classList.remove('hidden');
-                }
-                return;
+            if (!response || !response.success || !response.data) {
+                throw new Error('Invalid response from server');
             }
 
-            // Store the meeting data
             currentClientMeeting = { 
                 title: response.data.title,
                 date: response.data.date,
                 recordingId: response.data.recordingId,
                 shareableIdUsed: shareableId,
                 systemMeetingId: response.data.id,
-                analysisData: response.data.analysisData,
-                status: response.data.status || 'Unknown'
+                analysisData: response.data.analysisData
             };
 
-            // Check if analysis is complete
-            if (currentClientMeeting.status === 'Completed' && currentClientMeeting.analysisData) {
-                // Analysis is complete, show the analysis view
-                showClientView('details');
-                await populateClientMeetingDetails();
+            showClientView('details');
+            await populateClientMeetingDetails();
+            if (currentClientMeeting.analysisData) {
                 populateClientAnalysisData(currentClientMeeting.analysisData);
-                questionHistoryArray = [];
-                renderClientQuestionHistory();
-                if(questionResultWrapper) questionResultWrapper.classList.add('hidden');
-            } else {
-                // Analysis is not complete, show appropriate message
-                if(accessErrorClient) {
-                    let message = "Meeting analysis is not yet available.";
-                    if (currentClientMeeting.status === 'Scheduled') {
-                        message = "This meeting is scheduled for the future. Analysis will be available after the meeting is recorded and processed.";
-                    } else if (currentClientMeeting.status === 'Processing') {
-                        message = "Meeting analysis is currently processing. Please check back later.";
-                    }
-                    accessErrorClient.textContent = message;
-                    accessErrorClient.classList.remove('hidden');
-                }
             }
+            questionHistoryArray = [];
+            renderClientQuestionHistory();
+            if(questionResultWrapper) questionResultWrapper.classList.add('hidden');
 
         } catch (error) {
             console.error('Error accessing meeting:', error);
