@@ -26,17 +26,8 @@ if (missingEnvVars.length > 0) {
 let docClient;
 if (REGION && MEETINGS_TABLE_NAME) {
     try {
-        const ddbClient = new DynamoDBClient({ region: REGION });
-        docClient = DynamoDBDocumentClient.from(ddbClient, {
-            marshallOptions: {
-                convertEmptyValues: true,
-                removeUndefinedValues: true,
-                convertClassInstanceToMap: true
-            },
-            unmarshallOptions: {
-                wrapNumbers: false
-            }
-        });
+    const ddbClient = new DynamoDBClient({ region: REGION });
+    docClient = DynamoDBDocumentClient.from(ddbClient);
         console.log(`DynamoDB client initialized successfully for region: ${REGION}`);
     } catch (error) {
         console.error("Failed to initialize DynamoDB client:", error);
@@ -52,7 +43,10 @@ async function getMeetingAndVerifyOwnership(meetingId, ownerId) {
     
     const params = {
         TableName: MEETINGS_TABLE_NAME,
-        Key: { id: meetingId }, // Assuming 'id' is the Partition Key of MEETINGS_TABLE_NAME
+        Key: { 
+            userId: ownerId,  // Add userId as hash key
+            id: meetingId     // id as range key
+        },
     };
     const { Item: meeting } = await docClient.send(new GetCommand(params));
 
@@ -148,7 +142,10 @@ export default async function handler(req, res) {
 
             const updateParams = {
                 TableName: MEETINGS_TABLE_NAME,
-                Key: { id: meetingId },
+                Key: { 
+                    userId: userId,  // Add userId as hash key
+                    id: meetingId    // id as range key
+                },
                 UpdateExpression: updateExpression,
                 ExpressionAttributeValues: expressionAttributeValues,
                 ReturnValues: "ALL_NEW" // Returns the item as it appears after the update
@@ -174,7 +171,10 @@ export default async function handler(req, res) {
 
             const deleteParams = {
                 TableName: MEETINGS_TABLE_NAME,
-                Key: { id: meetingId }
+                Key: { 
+                    userId: userId,  // Add userId as hash key
+                    id: meetingId    // id as range key
+                }
             };
             await docClient.send(new DeleteCommand(deleteParams));
             
