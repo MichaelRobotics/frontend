@@ -270,11 +270,17 @@
             }
             const response = await fetchMeetingsAPI();
             console.log('Meetings API Response:', response); // Debug log
-            if (!response || !response.success || !response.data) {
-                console.error('Invalid API Response:', { response }); // Debug log
-                throw new Error('Invalid response from server');
+            
+            // Handle both direct array response and wrapped response format
+            if (Array.isArray(response)) {
+                meetings = response;
+            } else if (response && response.data && Array.isArray(response.data)) {
+                meetings = response.data;
+            } else {
+                console.error('Invalid API Response format:', response);
+                throw new Error('Invalid response format from server');
             }
-            meetings = response.data;
+            
             console.log('Processed meetings:', meetings); // Debug log
             renderSalesMeetingList(); // This will hide noMeetingsMessage if meetings are found
         } catch (error) {
