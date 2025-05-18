@@ -775,7 +775,7 @@
                 
                 // Redirect to client view with the validated data
             setTimeout(() => {
-                window.location.href = `client.html?shareableId=${encodeURIComponent(shareableId)}&accessCode=${encodeURIComponent(accessCode)}`;
+                window.location.href = `/client.html?shareableId=${encodeURIComponent(shareableId)}&accessCode=${encodeURIComponent(accessCode)}`;
             }, 1500);
             } catch (error) {
                 console.error('Client access error:', error);
@@ -791,13 +791,13 @@
         if(registerFormModal) registerFormModal.addEventListener('submit', (e) => { e.preventDefault(); if(authErrorModal) authErrorModal.classList.add('hidden'); handleRegister(document.getElementById('register-email-modal').value, document.getElementById('register-password-modal').value, document.getElementById('register-confirm-password-modal').value, document.getElementById('register-name-modal').value); });
         if(logoutMainBtn) logoutMainBtn.addEventListener('click', handleLogout);
         if(clientAccessFormModal) {
-            clientAccessFormModal.addEventListener('submit', (e) => {
+            clientAccessFormModal.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 if(clientAccessErrorModal) clientAccessErrorModal.classList.add('hidden');
 
                 const shareableId = document.getElementById('client-shareable-id-modal').value.trim();
                 const accessCode = document.getElementById('client-access-code-modal').value.trim();
-
+                
                 if (!shareableId || !accessCode) {
                     if(clientAccessErrorModal) {
                         clientAccessErrorModal.textContent = 'Shareable ID and Access Code are required.';
@@ -806,12 +806,53 @@
                     return;
                 }
 
-                // Redirect to client.html with parameters
-                showAppNotification('Proceeding to client view...', 'info', 1000);
-                closeClientAccessModal();
-                setTimeout(() => {
-                    window.location.href = `client.html?shareableId=${encodeURIComponent(shareableId)}&accessCode=${encodeURIComponent(accessCode)}`;
-                }, 300); // Short delay for modal to close
+                try {
+                    showAppNotification(`Validating access for Shareable ID: ${shareableId}...`, 'info');
+                    
+                    const response = await fetch('/api/client/validate-access', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ shareableId, clientCode: accessCode })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        let errorMessage = 'Failed to validate access.';
+                        if (response.status === 401) {
+                            errorMessage = data.message || 'Invalid Shareable ID or Access Code.';
+                        } else if (response.status === 403) {
+                            errorMessage = data.message || 'Meeting analysis is not yet complete.';
+                        }
+                        showAppNotification(errorMessage, 'error');
+                        return;
+                    }
+
+                    if (data.success) {
+                        // Store the validated data in sessionStorage
+                        sessionStorage.setItem('clientAccessStatus', 'validated');
+                        sessionStorage.setItem('clientMeetingData', JSON.stringify({
+                            analysisData: data.analysisData,
+                            recordingId: data.recordingId,
+                            title: data.title,
+                            date: data.date,
+                            meetingId: data.meetingId
+                        }));
+
+                        // Close the modal
+                        closeClientAccessModal();
+                        
+                        // Redirect to client page
+                        window.location.href = '/client.html';
+                    } else {
+                        showAppNotification(data.message || 'Failed to validate access.', 'error');
+                    }
+                } catch (error) {
+                    console.error('Error validating access:', error);
+                    showAppNotification('Failed to validate access. Please try again.', 'error');
+                }
             });
         }
 
