@@ -71,7 +71,7 @@ export default async function handler(req, res) {
             email: lowerCaseEmail, 
             hashedPassword,
             name: name ? name.trim() : lowerCaseEmail.split('@')[0], 
-            role: 'salesperson', 
+            role: 'admin', 
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
