@@ -1,36 +1,69 @@
 // File: /api/recordings/[recordingId]/status.js
 // Handles GET /api/recordings/:recordingId/analysis/status
-// This Vercel function interacts directly with DynamoDB.
+// Fetches the LATEST analysis status item for a recording.
 
-import { authenticateToken } from '../../utils/auth.js'; // Adjust path
+import { authenticateToken } from '../../utils/auth.js'; 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb"; // Using QueryCommand
 
 const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
-const REGION = process.env.MY_AWS_REGION;
+const REGION = process.env.AWS_REGION;
 
 if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION || !process.env.JWT_SECRET) {
-    console.error("FATAL_ERROR: Missing critical environment variables for analysis status API.");
+    console.error("FATAL_ERROR: Missing critical environment variables for /api/recordings/[recordingId]/status.js");
 }
 
-const ddbClient = new DynamoDBClient({ region: REGION });
-const docClient = DynamoDBDocumentClient.from(ddbClient);
+let docClient;
+if (REGION && RECORDINGS_ANALYSIS_TABLE_NAME) {
+    try {
+        const ddbClient = new DynamoDBClient({ region: REGION });
+        docClient = DynamoDBDocumentClient.from(ddbClient);
+        console.log(`DynamoDB client initialized successfully for region: ${REGION} in /api/recordings/[recordingId]/status.js`);
+    } catch (error) {
+        console.error("Failed to initialize DynamoDB client in /api/recordings/[recordingId]/status.js:", error);
+    }
+} else {
+    console.error("DynamoDB Document Client not initialized in /api/recordings/[recordingId]/status.js due to missing env vars.");
+}
 
-async function getLatestRecordingAnalysisItem(docClientInstance, recordingIdToQuery) {
+
+/**
+ * Helper to get the latest analysis item (any status) for a given recordingId.
+ * Assumes RECORDINGS_ANALYSIS_TABLE_NAME has PK: recordingId (String), SK: createdAt (String - ISO8601).
+ * @param {DynamoDBDocumentClient} client - The DynamoDB Document Client instance.
+ * @param {string} recId - The recordingId to query for.
+ * @returns {Promise<object|null>} The latest item or null if not found.
+ */
+async function getLatestRecordingAnalysisItemByRecordingId(client, recId) {
+    if (!client || !RECORDINGS_ANALYSIS_TABLE_NAME) {
+        console.error("getLatestRecordingAnalysisItemByRecordingId: Client or table name not configured.");
+        return null;
+    }
     const params = {
-        TableName: process.env.RECORDINGS_ANALYSIS_TABLE_NAME, // Use environment variable
+        TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
         KeyConditionExpression: "recordingId = :rid",
         ExpressionAttributeValues: {
-            ":rid": recordingIdToQuery
+            ":rid": recId
         },
-        ScanIndexForward: false, // Sort by 'createdAt' descending
-        Limit: 1               // Get only the newest item
+        ScanIndexForward: false, // Sort by 'createdAt' (the range key) descending
+        Limit: 1                 // We only want the most recent one
     };
-    const { Items } = await docClientInstance.send(new QueryCommand(params));
-    return (Items && Items.length > 0) ? Items[0] : null;
+
+    try {
+        const { Items } = await client.send(new QueryCommand(params));
+        return (Items && Items.length > 0) ? Items[0] : null;
+    } catch (error) {
+        console.error(`Error querying latest analysis item for ${recId}:`, error);
+        throw error; 
+    }
 }
 
+
 export default async function handler(req, res) {
+    if (!docClient || !RECORDINGS_ANALYSIS_TABLE_NAME) {
+        return res.status(500).json({ success: false, message: "Server configuration error for analysis status API." });
+    }
+
     if (req.method !== 'GET') {
         res.setHeader('Allow', ['GET']);
         return res.status(405).json({ success: false, message: `Method ${req.method} Not Allowed` });
@@ -38,51 +71,33 @@ export default async function handler(req, res) {
 
     const { recordingId } = req.query;
     
-    if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION) {
-        return res.status(500).json({ success: false, message: "Server configuration error." });
-    }
-
-    const authResult = authenticateToken(req);
+    const authResult = authenticateToken(req); // Or use authenticateTokenOrClientAccess if clients can check status
     if (!authResult.authenticated) {
         return res.status(authResult.status || 401).json({ success: false, message: authResult.message || "Unauthorized" });
     }
-    const userId = authResult.user.userId; 
+    // const userId = authResult.user.userId; // Available if needed for logging or fine-grained auth
 
     if (!recordingId) {
         return res.status(400).json({ success: false, message: "Recording ID is required." });
     }
 
     try {
-        const recording = await getLatestRecordingAnalysisItem(docClient, recordingId); 
+        const latestAnalysisItem = await getLatestRecordingAnalysisItemByRecordingId(docClient, recordingId); 
 
-        if (!recording) {
-            return res.status(404).json({ success: false, message: 'Recording status not found.' });
-        }
-        // The rest of the logic using 'recording' for status, progress etc. remains.
-        // Note: The ProjectionExpression from the old GetCommand should be considered if you
-        // only want specific fields after the Query for optimization, but the helper above fetches the whole item.
-        // If you keep the helper simple, ensure 'recording' has the needed fields.
-        // For status.js, the fields used are: analysisStatus, analysisProgress, analysisStatusMessage, analysisErrorMessage.
-        // These should be part of the 'recording' item fetched.
-
-        if (!recording) {
-            return res.status(404).json({ success: false, message: 'Recording status not found.' });
+        if (!latestAnalysisItem) {
+            return res.status(404).json({ success: false, message: 'Recording analysis status not found.' });
         }
         
-        // TODO: Implement more granular authorization if needed.
-        // For example, check if the authenticated user (userId) is the recording.uploaderUserId
-        // or owns the recording.originalMeetingId (if present and linked in your MeetingsTable).
-        // if (recording.uploaderUserId !== userId && authResult.user.role !== 'admin' && !await userIsOwnerOfOriginalMeeting(userId, recording.originalMeetingId)) { 
-        //     return res.status(403).json({ success: false, message: 'Access denied to this recording status.'});
-        // }
+        // TODO: Implement more granular authorization if needed (e.g., check ownership via originalMeetingId)
+        // if (latestAnalysisItem.uploaderUserId !== userId && authResult.user.role !== 'admin' ... ) { ... }
 
-        console.log(`API: Fetched status for recording ${recordingId} by user ${userId}`);
+        console.log(`API: Fetched status for recording ${recordingId}. Current status: ${latestAnalysisItem.analysisStatus}`);
         res.status(200).json({
             success: true,
-            status: recording.analysisStatus || 'unknown', 
-            progress: recording.analysisProgress !== undefined ? recording.analysisProgress : 0, 
-            status_message: recording.analysisStatusMessage || `Current status: ${recording.analysisStatus || 'unknown'}`,
-            error_message: recording.analysisStatus === 'failed' ? (recording.analysisErrorMessage || 'Analysis failed.') : null
+            status: latestAnalysisItem.analysisStatus || 'unknown', 
+            progress: latestAnalysisItem.analysisProgress !== undefined ? latestAnalysisItem.analysisProgress : 0, 
+            status_message: latestAnalysisItem.analysisStatusMessage || `Current status: ${latestAnalysisItem.analysisStatus || 'unknown'}`,
+            error_message: latestAnalysisItem.analysisStatus === 'failed' ? (latestAnalysisItem.analysisErrorMessage || 'Analysis failed with an unspecified error.') : null
         });
 
     } catch (error) {

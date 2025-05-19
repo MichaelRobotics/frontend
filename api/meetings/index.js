@@ -3,7 +3,7 @@
 // Handles POST /api/meetings (create a new meeting for the authenticated user)
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, ScanCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb"; // QueryCommand for GET
 import { v4 as uuidv4 } from 'uuid';
 import { authenticateToken } from '../utils/auth.js';
 
@@ -14,7 +14,7 @@ const REGION = process.env.AWS_REGION;
 const requiredEnvVars = {
     MEETINGS_TABLE_NAME,
     AWS_REGION: REGION,
-    JWT_SECRET: process.env.JWT_SECRET
+    JWT_SECRET: process.env.JWT_SECRET // Needed by authenticateToken
 };
 
 const missingEnvVars = Object.entries(requiredEnvVars)
@@ -22,18 +22,17 @@ const missingEnvVars = Object.entries(requiredEnvVars)
     .map(([key]) => key);
 
 if (missingEnvVars.length > 0) {
-    console.error("FATAL_ERROR: Missing critical environment variables for meetings API:", missingEnvVars.join(', '));
-    // This function might still be invoked by Vercel, so subsequent checks are needed.
+    console.error("FATAL_ERROR: Missing critical environment variables for meetings API (index.js):", missingEnvVars.join(', '));
 }
 
 let docClient;
 if (REGION && MEETINGS_TABLE_NAME) {
     try {
-    const ddbClient = new DynamoDBClient({ region: REGION });
-    docClient = DynamoDBDocumentClient.from(ddbClient);
-        console.log(`DynamoDB client initialized successfully for region: ${REGION}`);
+        const ddbClient = new DynamoDBClient({ region: REGION });
+        docClient = DynamoDBDocumentClient.from(ddbClient);
+        console.log(`DynamoDB client initialized successfully for region: ${REGION} in /api/meetings/index.js`);
     } catch (error) {
-        console.error("Failed to initialize DynamoDB client:", error);
+        console.error("Failed to initialize DynamoDB client in /api/meetings/index.js:", error);
     }
 } else {
     console.error("DynamoDB Document Client not initialized in /api/meetings/index.js due to missing REGION or MEETINGS_TABLE_NAME.");
@@ -63,10 +62,10 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
         try {
             // Fetch meetings for the authenticated userId from DynamoDB
-            // Assumes a GSI 'UserIdDateIndex' with 'userId' as partition key and 'date' as sort key for efficient querying.
+            // Assumes a GSI 'UserIdDateIndex' with 'userId' as partition key and 'date' as sort key.
             const params = {
                 TableName: MEETINGS_TABLE_NAME,
-                IndexName: 'UserIdDateIndex', // Ensure this GSI exists on your table
+                IndexName: 'UserIdDateIndex', // As defined in your Terraform
                 KeyConditionExpression: "userId = :uid",
                 ExpressionAttributeValues: { ":uid": userId },
                 ScanIndexForward: false // To get newest meetings first if 'date' is the GSI sort key
@@ -78,7 +77,7 @@ export default async function handler(req, res) {
             res.status(200).json({ success: true, message: 'Meetings fetched successfully', data: userMeetings || [] });
 
         } catch (error) {
-            console.error('API Error fetching meetings:', error);
+            console.error(`API Error fetching meetings for user ${userId}:`, error);
             res.status(500).json({ success: false, message: 'Failed to fetch meetings.', errorDetails: error.message });
         }
     } else if (req.method === 'POST') {
@@ -95,29 +94,33 @@ export default async function handler(req, res) {
                 return res.status(400).json({ success: false, message: 'Invalid client email format.' });
             }
 
-            const meetingId = `sm-${uuidv4()}`; 
+            const meetingId = `sm-${uuidv4()}`; // Primary sort key for the Meetings table
             const recordingId = `rec-${uuidv4()}`; 
             const clientCode = Math.random().toString(36).substring(2, 8).toUpperCase();
             const recorderAccessCode = Math.random().toString(36).substring(2, 10).toUpperCase();
             const recorderLink = `recorder.html?recordingId=${recordingId}&recorderCode=${recorderAccessCode}`;
-            const shareableMeetingId = generateShareableId(); // Generate the new shareable ID
+            const shareableMeetingId = generateShareableId();
+            const currentTime = new Date().toISOString();
 
             const newMeeting = {
-                id: meetingId, 
-                userId, 
+                userId, // Partition Key
+                id: meetingId, // Sort Key
                 title: title.trim(),
                 date, 
-                clientEmail: clientEmail.trim(),
+                clientEmail: clientEmail.trim().toLowerCase(), // Normalize email
                 notes: notes ? notes.trim() : '',
-                status: 'Scheduled',
+                status: 'Scheduled', // Initial status
                 clientCode,
-                shareableMeetingId, // Add the new shareable ID
+                shareableMeetingId, 
                 recordingId, 
                 recorderLink, 
                 recorderAccessCode, 
                 analysisAvailable: false,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
+                createdAt: currentTime,
+                updatedAt: currentTime
+                // TODO: Implement TTL attribute if needed
+                // Example: Set TTL to expire 1 year after creation
+                // ttl: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60), 
             };
 
             const putParams = {
