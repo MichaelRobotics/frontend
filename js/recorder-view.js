@@ -1,15 +1,13 @@
 // /js/recorder-view.js
 const RecorderView = (() => {
-    // Local cache of meetings, fetched from backend via SharedAppLogic
     let meetings = []; 
     
-    // Callbacks from SharedAppLogic, assigned during init
     let showNotificationCallback;
     let switchViewCallback;
     let setButtonLoadingStateCallback;
     let getMeetingByIdCallback; 
-    let updateMeetingCallback;  // Expected to be SharedAppLogic.updateMeetingAPI
-    let addMeetingCallback;     // Expected to be SharedAppLogic.createMeetingAPI (for ad-hoc)
+    let updateMeetingCallback;  
+    let addMeetingCallback; 
     let fetchMeetingsAPI;       
     let uploadRecordingAPI;
     let fetchAnalysisStatusAPI;
@@ -17,26 +15,24 @@ const RecorderView = (() => {
     let downloadAnalysisPdfAPI; 
     let generateIdCallback;     
 
-    // State variables for recording
-    let currentRecorderMeeting = null; // Holds the meeting object currently being recorded or viewed for analysis
+    let currentRecorderMeeting = null; 
     let isRecording = false, isPaused = false, recordingStartTime, accumulatedPausedTime = 0, pauseStartTime, timerInterval, pollingInterval;
-    let mediaRecorder, audioChunks = [], audioStreamForVisualizer, currentStreamTracks = [];
+    
+    // Media related state
+    let mediaRecorder, audioChunks = [];
+    let audioStreamForVisualizer = null; // Holds the current stream for visualization/recording
     let audioContext, analyser, visualizerFrameId;
+    let currentSelectedDeviceId = null; // Keep track of the explicitly selected device
 
-    // DOM Elements - to be populated by initDOMReferences
+    // DOM Elements
     let meetingListViewRec, recordingViewRec, analysisViewRec;
     let newRecordingBtnRec, meetingListRec, noMeetingsMessageRec;
     let recordingMeetingTitleElemRec, meetingTitleInputElemRec, stopBtnElemRec, pauseResumeBtnElemRec, recordingIndicatorElemRec, recordingStatusTextElemRec, recordingTimeDisplayElemRec, recordingProgressElemRec, audioInputSelectElemRec, audioVisualizerCanvasElemRec, meetingNotesElemRec, audioQualitySelectElemRec;
     let analysisMeetingTitleElemRec, analysisDateDisplayElemRec, analysisProgressSectionElemRec, analysisStatusTextElemRec, analysisProgressPercentageElemRec, analysisProgressBarElemRec, analysisContentSectionElemRec, analysisTabsElemsRec, analysisPanelsElemsRec;
     let backToListBtnRec, logoutBtnRec, mainMenuBtnRec, downloadTranscriptBtnRec, downloadPdfBtnRec;
 
-    /**
-     * Returns the HTML structure for the recorder view.
-     * This HTML is typically injected into a container element on recorder.html.
-     */
     function getHTML() {
-        // This HTML should match the structure expected by initDOMReferences.
-        // It's taken from the user-provided michaelrobotics/frontend/frontend-prod-api/recorder.html
+        // HTML structure from michaelrobotics/frontend/frontend-prod-api/recorder.html
         return `
         <header class="bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-xl sticky top-0 z-40">
             <div class="container mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center">
@@ -145,9 +141,6 @@ const RecorderView = (() => {
         `;
     }
     
-    /**
-     * Initializes references to DOM elements used by the recorder view.
-     */
     function initDOMReferences() {
         const viewContainer = document.getElementById('recorder-view-container');
         if (!viewContainer) { console.error("Recorder view container not found!"); return; }
@@ -195,10 +188,6 @@ const RecorderView = (() => {
         if(currentYearSpan) currentYearSpan.textContent = new Date().getFullYear();
     }
 
-    /**
-     * Shows the specified view section (list, recording, analysis) and hides others.
-     * @param {string} viewName - The name of the view to show ('list', 'recording', 'analysis').
-     */
     function showRecorderView(viewName) {
         if (!meetingListViewRec || !recordingViewRec || !analysisViewRec || !backToListBtnRec) {
             console.error("Recorder view elements not fully initialized for showRecorderView.");
@@ -208,24 +197,24 @@ const RecorderView = (() => {
         recordingViewRec.classList.add('hidden');
         analysisViewRec.classList.add('hidden');
         
-        // Control visibility of the "Back to List" button
         if (viewName === 'list') {
             backToListBtnRec.classList.add('hidden');
             meetingListViewRec.classList.remove('hidden');
+            stopMicrophonePreview(); // Stop preview when going to list
         } else if (viewName === 'recording') {
             backToListBtnRec.classList.remove('hidden');
             recordingViewRec.classList.remove('hidden');
+            // Start preview with currently selected device if not already recording
+            if (!isRecording && audioInputSelectElemRec) {
+                 activateMicrophonePreview(audioInputSelectElemRec.value || null);
+            }
         } else if (viewName === 'analysis') {
             backToListBtnRec.classList.remove('hidden');
             analysisViewRec.classList.remove('hidden');
+            stopMicrophonePreview(); // Stop preview when viewing analysis
         }
     }
     
-    /**
-     * Maps backend meeting statuses to human-readable text.
-     * @param {string} status - The status string from the backend.
-     * @returns {string} Human-readable status.
-     */
     function getMeetingStatusText(status) {
         if (!status) return 'Unknown';
         const lowerStatus = status.toLowerCase();
@@ -235,48 +224,39 @@ const RecorderView = (() => {
             case 'uploading_to_backend': return 'Uploading...';
             case 'processing': return 'Processing Analysis';
             case 'completed': return 'Completed & Analyzed';
-            case 'analyzed': return 'Analyzed'; // Could be same as 'completed' for display
+            case 'analyzed': return 'Analyzed';
             case 'recorded': return 'Recorded (Pending Analysis)';
             case 'failed_to_start': return 'Failed to Start';
             case 'upload_failed': return 'Upload Failed';
             case 'status_check_error': return 'Status Check Error';
             case 'failed': return 'Failed';
             case 'failed_empty_recording': return 'Empty Recording - Failed';
-            default: return status.charAt(0).toUpperCase() + status.slice(1); // Capitalize if unknown
+            default: return status.charAt(0).toUpperCase() + status.slice(1);
         }
     }
 
-    /**
-     * Maps backend meeting statuses to CSS classes for styling indicators.
-     * @param {string} status - The status string from the backend.
-     * @returns {string} CSS class name.
-     */
     function getMeetingStatusClass(status) {
         if (!status) return 'status-unknown';
         const lowerStatus = status.toLowerCase();
         switch (lowerStatus) {
-            case 'scheduled': return 'status-scheduled'; // e.g., bg-purple-500 text-white
-            case 'recording': return 'status-recording'; // e.g., bg-red-500 text-white (with pulse animation)
-            case 'uploading_to_backend': return 'status-uploading_to_backend'; // e.g., bg-blue-500 text-white (with pulse)
-            case 'processing': return 'status-processing'; // e.g., bg-yellow-500 text-black (with pulse)
+            case 'scheduled': return 'bg-purple-200 text-purple-800 status-scheduled';
+            case 'recording': return 'bg-red-200 text-red-800 status-recording';
+            case 'uploading_to_backend': return 'bg-blue-200 text-blue-800 status-uploading_to_backend';
+            case 'processing': return 'bg-yellow-200 text-yellow-800 status-processing';
             case 'completed':
             case 'analyzed':
-                return 'status-completed'; // e.g., bg-green-500 text-white
-            case 'recorded': return 'status-processing'; // Or a distinct 'status-recorded' e.g. bg-indigo-500 text-white
+                return 'bg-green-200 text-green-800 status-completed';
+            case 'recorded': return 'bg-indigo-200 text-indigo-800 status-recorded';
             case 'failed_to_start':
             case 'upload_failed':
             case 'status_check_error':
             case 'failed':
             case 'failed_empty_recording':
-                return 'status-failed'; // e.g., bg-red-700 text-white
-            default: return 'status-unknown'; // e.g., bg-gray-400 text-black
+                return 'bg-red-300 text-red-900 status-failed';
+            default: return 'bg-gray-300 text-gray-800 status-unknown';
         }
     }
 
-    /**
-     * Renders the list of meetings available for recording.
-     * Called after meetings are fetched.
-     */
     async function renderRecorderMeetingList() {
         if (!meetingListRec) {
             console.error('Meeting list container (#meeting-list-rec) not found in DOM.');
@@ -289,7 +269,7 @@ const RecorderView = (() => {
             if (noMeetingsMessageRec) {
                 noMeetingsMessageRec.textContent = 'No meetings found or scheduled for recording.';
                 noMeetingsMessageRec.classList.remove('hidden');
-            } else { // Fallback if noMeetingsMessageRec element itself is missing
+            } else {
                 meetingListRec.innerHTML = '<div class="no-meetings text-center text-gray-500 py-8 text-lg italic">No meetings found or scheduled for recording.</div>';
             }
             return;
@@ -301,10 +281,10 @@ const RecorderView = (() => {
     
         sortedMeetings.forEach(meeting => {
             const meetingItemElement = document.createElement('div');
-            meetingItemElement.className = 'meeting-item-card bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow duration-200 cursor-pointer mb-3'; // Base styling
+            meetingItemElement.className = 'meeting-item-card bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow duration-200 cursor-pointer mb-3';
             
             const statusText = getMeetingStatusText(meeting.status);
-            const statusClass = getMeetingStatusClass(meeting.status); // This should return a CSS class for background/text color
+            const statusClass = getMeetingStatusClass(meeting.status);
             
             meetingItemElement.innerHTML = `
                 <div class="flex justify-between items-start mb-2">
@@ -324,7 +304,7 @@ const RecorderView = (() => {
 
             if (!nonStartableStatuses.includes(currentStatusLower)) {
                 meetingItemElement.addEventListener('click', () => {
-                    handleStartScheduledRecording(meeting.id); // Pass the main meeting ID (sm-...)
+                    handleStartScheduledRecording(meeting.id); 
                 });
             } else {
                 meetingItemElement.classList.remove('cursor-pointer');
@@ -333,7 +313,7 @@ const RecorderView = (() => {
                     meetingItemElement.classList.add('cursor-pointer'); 
                     meetingItemElement.classList.remove('opacity-70');
                     meetingItemElement.addEventListener('click', () => {
-                        handleViewRecorderAnalysis(meeting.recordingId); // Use recordingId (rec-...) here
+                        handleViewRecorderAnalysis(meeting.recordingId); 
                     });
                 }
             }
@@ -341,10 +321,6 @@ const RecorderView = (() => {
         });
     }
 
-    /**
-     * Handles the initiation of a pre-scheduled meeting recording.
-     * @param {string} meetingId - The primary ID (sm-...) of the meeting to start.
-     */
     async function handleStartScheduledRecording(meetingId) { 
         try {
             if (isRecording) {
@@ -353,7 +329,6 @@ const RecorderView = (() => {
             }
             if (!meetingId) {
                 showNotificationCallback('Invalid meeting ID provided.', 'error');
-                console.error('Invalid meeting ID for handleStartScheduledRecording');
                 return;
             }
     
@@ -367,10 +342,6 @@ const RecorderView = (() => {
             const nonStartableStatuses = ['recording', 'uploading_to_backend', 'processing', 'completed', 'analyzed', 'failed', 'failed_to_start', 'upload_failed', 'status_check_error', 'failed_empty_recording'];
             if (nonStartableStatuses.includes(currentStatusLower)) {
                 showNotificationCallback(`Meeting "${meetingObject.title}" is currently '${getMeetingStatusText(meetingObject.status)}' and cannot be started.`, 'warning');
-                if (['completed', 'analyzed'].includes(currentStatusLower) && meetingObject.recordingId) {
-                    // Optionally, directly navigate to analysis view:
-                    // handleViewRecorderAnalysis(meetingObject.recordingId);
-                }
                 return;
             }
     
@@ -389,18 +360,18 @@ const RecorderView = (() => {
                 return;
             }
     
-            if (!meetingObject.recordingId) { // recordingId is the rec-xxxx ID
-                showNotificationCallback('This meeting is missing an associated recording identifier. Cannot start recording.', 'error');
-                console.error('Error: meetingObject.recordingId is missing for scheduled meeting:', meetingObject);
+            if (!meetingObject.recordingId) { 
+                showNotificationCallback('This meeting is missing an associated recording identifier (recordingId field). Cannot start recording.', 'error');
                 return;
             }
 
             currentRecorderMeeting = {
                 ...meetingObject, 
-                id: meetingObject.id, // This is the main meeting ID (sm-...)
-                recorderId: meetingObject.recordingId, // This is the specific ID for the recording (rec-...)
-                // notes and title are spread from meetingObject
-                audioQuality: audioQualitySelectElemRec ? audioQualitySelectElemRec.value : 'medium' // Set current quality
+                id: meetingObject.id, 
+                recorderId: meetingObject.recordingId, 
+                audioQuality: audioQualitySelectElemRec ? audioQualitySelectElemRec.value : 'medium',
+                isAdhoc: false, // Explicitly not ad-hoc
+                isNewAdhocPendingSave: false
             };
     
             if (meetingTitleInputElemRec) {
@@ -409,13 +380,13 @@ const RecorderView = (() => {
             }
             if (meetingNotesElemRec) {
                 meetingNotesElemRec.value = currentRecorderMeeting.notes || '';
-                meetingNotesElemRec.readOnly = true; // For scheduled, notes are usually fixed by salesperson
+                meetingNotesElemRec.readOnly = true; 
             }
             if (recordingMeetingTitleElemRec) {
                 recordingMeetingTitleElemRec.textContent = `Recording: ${currentRecorderMeeting.title}`;
             }
     
-            showRecorderView('recording');
+            showRecorderView('recording'); // This will also trigger activateMicrophonePreview
             await startActualRecording(); 
     
         } catch (error) {
@@ -426,9 +397,6 @@ const RecorderView = (() => {
         }
     }
     
-    /**
-     * Fetches meetings from the backend and renders them in the list.
-     */
     async function refreshMeetingsForRecorder() {
         try {
             if (noMeetingsMessageRec) {
@@ -436,17 +404,12 @@ const RecorderView = (() => {
                 noMeetingsMessageRec.classList.remove('hidden');
             }
             const response = await fetchMeetingsAPI(); 
-            // Ensure meetings is always an array, even if response.data is null/undefined
             meetings = (response && response.success && Array.isArray(response.data)) ? response.data : []; 
-            
-            renderRecorderMeetingList(); // This will handle the "No meetings" message if meetings array is empty
-
+            renderRecorderMeetingList(); 
         } catch (error) {
             console.error("Error fetching meetings in RecorderView:", error);
-            meetings = []; // Ensure meetings is an empty array on error
-            renderRecorderMeetingList(); // Call render to show appropriate message
-            // The noMeetingsMessageRec might be set by renderRecorderMeetingList itself,
-            // but as a fallback:
+            meetings = []; 
+            renderRecorderMeetingList(); 
             if (noMeetingsMessageRec && meetings.length === 0) { 
                 noMeetingsMessageRec.textContent = "Could not load meetings. Please try refreshing.";
                 noMeetingsMessageRec.classList.remove('hidden');
@@ -454,65 +417,53 @@ const RecorderView = (() => {
         }
     }
 
-    /**
-     * Handles starting an ad-hoc (unscheduled) recording.
-     */
     async function handleStartAdHocRecording() {
         if (isRecording) {
             showNotificationCallback("A recording is already in progress. Please stop it first.", "warning");
             return;
         }
     
-        const newRecId = `rec-${generateIdCallback()}`; // Generate rec-xxxx ID
-        // Ad-hoc recordings will get their main 'sm-...' ID from the backend if/when a meeting record is created for them.
-        // For now, we use the rec-id as the primary local identifier for this ad-hoc session's context.
-    
+        const newRecId = `rec-${generateIdCallback()}`;
         currentRecorderMeeting = {
-            // id: newRecId, // Tentatively use rec-id as the main local ID for this adhoc context before backend assigns one
-            recorderId: newRecId,    // The actual ID for the recording file and analysis
+            recorderId: newRecId,    
             title: `Ad-hoc Recording - ${new Date().toLocaleDateString()}`,
-            date: new Date().toISOString(), // Current time
-            status: 'Scheduled', // Initial status before actual recording starts
+            date: new Date().toISOString(), 
+            status: 'Scheduled', 
             notes: '',
-            clientEmail: '', // Can be left blank or prompted
-            isAdhoc: true, // Flag to identify this as an ad-hoc recording
+            clientEmail: '', 
+            isAdhoc: true, 
+            isNewAdhocPendingSave: true, // Indicates it needs a full meeting record creation later
             audioQuality: audioQualitySelectElemRec ? audioQualitySelectElemRec.value : 'medium',
-            // originalMeetingId will be null for a new ad-hoc
+            // 'id' (sm-...) will be assigned by backend if/when a meeting record is created for this.
         };
     
         if (meetingTitleInputElemRec) {
             meetingTitleInputElemRec.value = currentRecorderMeeting.title;
-            meetingTitleInputElemRec.readOnly = false; // Allow editing title for ad-hoc
+            meetingTitleInputElemRec.readOnly = false; 
         }
         if (meetingNotesElemRec) {
             meetingNotesElemRec.value = '';
-            meetingNotesElemRec.readOnly = false; // Allow editing notes
+            meetingNotesElemRec.readOnly = false;
         }
         if (recordingMeetingTitleElemRec) {
             recordingMeetingTitleElemRec.textContent = `Recording: ${currentRecorderMeeting.title}`;
         }
         
         showNotificationCallback("Preparing new ad-hoc recording session.", "info");
-        showRecorderView('recording');
-        await startActualRecording(); // This will handle backend communication if needed for ad-hoc at start
+        showRecorderView('recording'); // This will trigger activateMicrophonePreview
+        await startActualRecording();
     }
     
-    /**
-     * Populates the audio input device selection dropdown.
-     * Requests microphone permissions if not already granted.
-     */
     async function populateAudioInputDevicesRec() {
         if (!audioInputSelectElemRec) {
-            console.warn("Audio input select element not found.");
-            return;
+            console.warn("Audio input select element not found for populating.");
+            return false; // Indicate failure
         }
         try {
-            // Ensure permissions are granted before enumerating devices for labels
             await navigator.mediaDevices.getUserMedia({ audio: true, video: false }); 
-            
             const devices = await navigator.mediaDevices.enumerateDevices();
             const audioInputs = devices.filter(device => device.kind === 'audioinput');
-            audioInputSelectElemRec.innerHTML = ''; // Clear existing options
+            audioInputSelectElemRec.innerHTML = ''; 
 
             if (audioInputs.length > 0) {
                 audioInputs.forEach(device => {
@@ -521,34 +472,81 @@ const RecorderView = (() => {
                     option.textContent = device.label || `Microphone ${audioInputSelectElemRec.options.length + 1}`;
                     audioInputSelectElemRec.appendChild(option);
                 });
+                currentSelectedDeviceId = audioInputs[0].deviceId; // Default to first device
+                return true; // Indicate success
             } else {
                 audioInputSelectElemRec.innerHTML = '<option value="">No audio input devices found</option>';
-                showNotificationCallback("No audio input devices found. Please check your microphone connection and browser permissions.", "warning");
+                showNotificationCallback("No audio input devices found. Please check your microphone.", "warning");
+                return false; // Indicate failure
             }
         } catch (err) {
             console.error("Error populating audio devices or getting permissions:", err);
             audioInputSelectElemRec.innerHTML = '<option value="">Error accessing microphones</option>';
             let message = "Could not access microphones.";
             if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-                message = "Microphone access denied. Please enable microphone permissions in your browser settings.";
+                message = "Microphone access denied. Please enable microphone permissions in your browser settings for this site.";
             } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
                 message = "No microphone found. Please connect a microphone.";
             } else {
                 message = `Error accessing microphones: ${err.message}`;
             }
             showNotificationCallback(message, "error");
+            return false; // Indicate failure
         }
     }
 
     /**
-     * Sets up all event listeners for the recorder view.
+     * Activates a microphone preview stream and starts the visualizer.
+     * @param {string|null} deviceId - The specific device ID to use. Null for default.
      */
+    async function activateMicrophonePreview(deviceId) {
+        if (isRecording) { // Don't interfere if an actual recording is in progress
+            console.log("activateMicrophonePreview: Actual recording in progress, preview activation skipped.");
+            return;
+        }
+
+        stopMicrophonePreview(); // Stop any existing preview stream and visualizer
+
+        if (!deviceId && audioInputSelectElemRec && audioInputSelectElemRec.options.length > 0) {
+            deviceId = audioInputSelectElemRec.value; // Use current selection if no specific ID passed
+        }
+        currentSelectedDeviceId = deviceId; // Store the device ID being activated
+
+        const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+        try {
+            audioStreamForVisualizer = await navigator.mediaDevices.getUserMedia(constraints);
+            if (audioStreamForVisualizer && audioStreamForVisualizer.active) {
+                console.log("Microphone preview activated for deviceId:", deviceId || "default");
+                setupAudioVisualizerRec(audioStreamForVisualizer);
+            } else {
+                throw new Error("Failed to get active stream for preview.");
+            }
+        } catch (err) {
+            console.error("Error activating microphone preview:", err);
+            showNotificationCallback(`Could not start microphone preview: ${err.message}`, "warning");
+            stopAudioVisualizerRec(); // Ensure canvas is cleared
+            audioStreamForVisualizer = null;
+        }
+    }
+
+    /**
+     * Stops the current microphone preview stream and visualizer.
+     */
+    function stopMicrophonePreview() {
+        if (audioStreamForVisualizer && audioStreamForVisualizer.active) {
+            audioStreamForVisualizer.getTracks().forEach(track => track.stop());
+            console.log("Microphone preview stream stopped.");
+        }
+        audioStreamForVisualizer = null;
+        stopAudioVisualizerRec(); // Clears canvas and stops animation loop
+    }
+
+
     function setupEventListeners() {
-        // Guard to ensure DOM elements are available
         if (!newRecordingBtnRec || !stopBtnElemRec || !pauseResumeBtnElemRec || 
             !audioInputSelectElemRec || !backToListBtnRec || !mainMenuBtnRec || 
             !logoutBtnRec || !analysisTabsElemsRec || !downloadTranscriptBtnRec || !downloadPdfBtnRec) { 
-            console.error("Recorder DOM not fully initialized for event listeners. One or more elements are missing."); 
+            console.error("Recorder DOM not fully initialized for event listeners."); 
             return; 
         }
 
@@ -558,58 +556,35 @@ const RecorderView = (() => {
         audioInputSelectElemRec.addEventListener('change', handleAudioInputChange);
         
         backToListBtnRec.addEventListener('click', async () => {
-            if(isRecording && !confirm("Recording is in progress. Are you sure you want to stop and go back to the list? The current recording will be processed if stopped.")) {
+            if(isRecording && !confirm("Recording is in progress. Stop and go to list? The current recording will be processed.")) {
                 return;
             }
-            if(isRecording) {
-                await stopActualRecording(false); 
-                let attempts = 0; 
-                while(isRecording && attempts < 50) { 
-                    await new Promise(resolve => setTimeout(resolve, 100)); 
-                    attempts++;
-                }
-                 if(isRecording) console.warn("Failed to confirm recording stopped before navigating back to list.");
-            }
+            if(isRecording) await stopActualRecording(false); 
+            stopMicrophonePreview(); // Stop preview when going to list
             await refreshMeetingsForRecorder(); 
             showRecorderView('list');
         });
 
         mainMenuBtnRec.addEventListener('click', async () => {
-             if(isRecording && !confirm("Recording is in progress. Are you sure you want to stop and go to the App Dashboard?")) return;
-             if(isRecording) {
-                await stopActualRecording(false);
-                let attempts = 0; 
-                while(isRecording && attempts < 50) { 
-                    await new Promise(resolve => setTimeout(resolve, 100)); 
-                    attempts++;
-                }
-                if(isRecording) console.warn("Failed to confirm recording stopped before navigating to main menu.");
-             }
+             if(isRecording && !confirm("Recording in progress. Stop and go to App Dashboard?")) return;
+             if(isRecording) await stopActualRecording(false);
+             stopMicrophonePreview(); // Stop preview when navigating away
             switchViewCallback('index'); 
         });
 
         logoutBtnRec.addEventListener('click', async () => { 
-            if(isRecording && !confirm("Recording is in progress. Are you sure you want to stop and logout?")) return;
-            if(isRecording) {
-                await stopActualRecording(false); 
-                let attempts = 0; 
-                while(isRecording && attempts < 50) { 
-                    await new Promise(resolve => setTimeout(resolve, 100)); 
-                    attempts++;
-                }
-                 if(isRecording) console.warn("Failed to confirm recording stopped before logout.");
-            }
-            
+            if(isRecording && !confirm("Recording in progress. Stop and logout?")) return;
+            if(isRecording) await stopActualRecording(false); 
+            stopMicrophonePreview(); // Stop preview on logout
+
             if (typeof SharedAppLogic !== 'undefined' && typeof SharedAppLogic.logoutAPI === 'function') {
-                await SharedAppLogic.logoutAPI(); // This should handle token clearing and redirection
+                await SharedAppLogic.logoutAPI(); 
             } else {
-                console.warn("SharedAppLogic.logoutAPI not available. Performing client-side only logout actions.");
                 if (typeof SharedAppLogic !== 'undefined' && SharedAppLogic.clearAuthTokenAndUser) SharedAppLogic.clearAuthTokenAndUser();
                 localStorage.removeItem('pendingRole'); 
-                window.location.href = 'landing-page.html'; // Manual redirect
+                window.location.href = 'landing-page.html'; 
             }
-            showNotificationCallback("Logged out successfully. Redirecting...", "info");
-            // If SharedAppLogic.logoutAPI doesn't redirect, ensure redirection here or in the main script.
+            // Notification and redirection should be handled by logoutAPI or above.
         });
 
         analysisTabsElemsRec.forEach(tab => {
@@ -647,7 +622,7 @@ const RecorderView = (() => {
                 const statusLower = currentRecorderMeeting?.status?.toLowerCase();
                 if (currentRecorderMeeting && (statusLower === 'completed' || statusLower === 'analyzed') && currentRecorderMeeting.recorderId) {
                     try {
-                        setButtonLoadingStateCallback(downloadPdfBtnRec, true, '.button-text', '.button-loader'); // Assuming standard selectors
+                        setButtonLoadingStateCallback(downloadPdfBtnRec, true, '.button-text', '.button-loader'); 
                         await downloadAnalysisPdfAPI(currentRecorderMeeting.recorderId); 
                     } catch (error) {
                         console.error("Recorder PDF Download trigger failed:", error);
@@ -662,12 +637,11 @@ const RecorderView = (() => {
         }
     }
 
-    /**
-     * Handles changes to the selected audio input device.
-     * If recording, prompts the user to stop and restart with the new device.
-     */
     async function handleAudioInputChange() { 
+        const newDeviceId = audioInputSelectElemRec.value;
         if (isRecording) {
+            if (currentSelectedDeviceId === newDeviceId) return; // No change
+
             if (confirm("Changing the microphone will stop the current recording segment and start a new one with the selected device. Continue?")) {
                 showNotificationCallback("Stopping current recording segment...", "info");
                 await stopActualRecording(false); 
@@ -679,11 +653,11 @@ const RecorderView = (() => {
                 }
                 if(isRecording) { 
                     showNotificationCallback("Failed to stop the previous recording segment. Cannot switch microphone at this time.", "error");
-                    // Attempt to revert dropdown to original device if possible, or re-populate.
-                    // For now, user might need to manually stop and restart.
+                    audioInputSelectElemRec.value = currentSelectedDeviceId; // Revert dropdown
                     return;
                 }
-
+                // At this point, isRecording is false, previous recording is stopped and processing.
+                // Now prepare for a new segment.
                 showNotificationCallback("Starting new recording segment with selected microphone...", "info");
                 
                 const previousTitleBase = currentRecorderMeeting?.title?.replace(/ \(Segment .*\)| \(Ad-hoc.*?\)/, '') || "Continued Recording";
@@ -692,15 +666,12 @@ const RecorderView = (() => {
                 const clientEmailForSegment = currentRecorderMeeting?.clientEmail || null;
 
                 const newSegmentRecorderId = `rec-segment-${generateIdCallback(6)}`;
-                // A new segment might need a new primary meeting ID if each segment is tracked as a distinct "meeting" entry
-                // or it might update the existing meeting record. For simplicity, let's treat it as a new adhoc-like entry for now.
-                const newMeetingIdForSegment = `sm-segment-${generateIdCallback(6)}`;
-
+                const newMeetingIdForSegment = `sm-segment-${generateIdCallback(6)}`; // If each segment is a new meeting entry
 
                 currentRecorderMeeting = { 
                     id: newMeetingIdForSegment, 
                     recorderId: newSegmentRecorderId, 
-                    title: `${previousTitleBase} (Segment ${Math.floor(Math.random()*900)+100})`, // Random segment number
+                    title: `${previousTitleBase} (Segment ${Math.floor(Math.random()*900)+100})`,
                     date: new Date().toISOString(), 
                     status: 'Scheduled', 
                     analysisAvailable: false,
@@ -708,30 +679,32 @@ const RecorderView = (() => {
                     notes: previousNotes, 
                     originalMeetingId: originalMeetingIdForSegment, 
                     audioQuality: audioQualitySelectElemRec ? audioQualitySelectElemRec.value : 'medium',
-                    isAdhoc: !originalMeetingIdForSegment, // If no original link, it's essentially a new ad-hoc chain
+                    isAdhoc: !originalMeetingIdForSegment, 
+                    isNewAdhocPendingSave: !originalMeetingIdForSegment, // Treat as new if no original link
                 };
+                currentSelectedDeviceId = newDeviceId; // Update selected device ID
 
                 if(meetingTitleInputElemRec) meetingTitleInputElemRec.value = currentRecorderMeeting.title;
                 if(meetingNotesElemRec) meetingNotesElemRec.value = currentRecorderMeeting.notes;
                 if(recordingMeetingTitleElemRec) recordingMeetingTitleElemRec.textContent = `Recording: ${currentRecorderMeeting.title}`;
                 
+                // No need to call activateMicrophonePreview here, startActualRecording will handle it.
                 await startActualRecording(); 
             } else {
-                // If user cancels, try to revert the dropdown to the device that was active for the current stream (if any)
-                // This is complex if the stream was already stopped. For now, notify.
-                showNotificationCallback("Microphone change cancelled. The previously selected device (if any) remains for a new recording.", "info");
+                // User cancelled the switch, revert dropdown to the actual active device ID
+                audioInputSelectElemRec.value = currentSelectedDeviceId; 
+                showNotificationCallback("Microphone change cancelled.", "info");
             }
-        } else {
-            if (audioInputSelectElemRec && audioInputSelectElemRec.options.length > 0 && audioInputSelectElemRec.selectedIndex >=0) {
-                showNotificationCallback(`Microphone selection changed to: ${audioInputSelectElemRec.options[audioInputSelectElemRec.selectedIndex].text}. This will be used for the next recording.`, "info");
+        } else { // Not currently recording, just switch the preview
+            if (currentSelectedDeviceId !== newDeviceId) {
+                await activateMicrophonePreview(newDeviceId);
+                if (audioInputSelectElemRec.options.length > 0 && audioInputSelectElemRec.selectedIndex >=0) {
+                     showNotificationCallback(`Microphone preview changed to: ${audioInputSelectElemRec.options[audioInputSelectElemRec.selectedIndex].text}.`, "info");
+                }
             }
         }
     }
 
-    /**
-     * Starts the actual browser-based audio recording process.
-     * Initializes MediaRecorder, sets up event handlers, and updates backend status.
-     */
     async function startActualRecording() {
         if (isRecording) { 
             showNotificationCallback("A recording is already in progress.", "warning");
@@ -739,44 +712,43 @@ const RecorderView = (() => {
         }
         if (!currentRecorderMeeting || !currentRecorderMeeting.recorderId) {
             showNotificationCallback("No meeting context or recorder ID. Cannot start recording.", "error");
-            console.error("startActualRecording: currentRecorderMeeting or recorderId is missing.", currentRecorderMeeting);
             return; 
         }
 
         try {
-            const selectedDeviceId = audioInputSelectElemRec.value;
-            const constraints = { 
-                audio: { 
-                    deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
-                    // Consider adding these for better quality, but test browser compatibility
-                    // echoCancellation: true,
-                    // noiseSuppression: true,
-                    // autoGainControl: true 
-                } 
-            };
-            
-            audioStreamForVisualizer = await navigator.mediaDevices.getUserMedia(constraints);
-            currentStreamTracks = audioStreamForVisualizer.getAudioTracks();
-            if (currentStreamTracks.length === 0) {
-                throw new Error("No audio tracks found in the selected media stream.");
+            // Ensure audioStreamForVisualizer is active and for the correct device
+            // If not, or if it's different from currentSelectedDeviceId, get a new one.
+            const selectedDeviceIdInDropdown = audioInputSelectElemRec.value;
+            if (!audioStreamForVisualizer || !audioStreamForVisualizer.active || currentSelectedDeviceId !== selectedDeviceIdInDropdown) {
+                console.log("startActualRecording: Visualizer stream not active or device mismatch. Getting new stream for device:", selectedDeviceIdInDropdown);
+                stopMicrophonePreview(); // Stop any old preview
+                const constraints = { audio: selectedDeviceIdInDropdown ? { deviceId: { exact: selectedDeviceIdInDropdown } } : true };
+                audioStreamForVisualizer = await navigator.mediaDevices.getUserMedia(constraints);
+                currentSelectedDeviceId = selectedDeviceIdInDropdown; // Update the active device ID
+                if (!audioStreamForVisualizer || !audioStreamForVisualizer.active) {
+                    throw new Error("Failed to get active audio stream for recording.");
+                }
+                // Visualizer will be set up with this new stream below, or if already set up, it continues
             }
-
-            setupAudioVisualizerRec(audioStreamForVisualizer);
+            
+            // Now, audioStreamForVisualizer should be the correct, active stream.
+            // Setup visualizer if it's not already running with this stream (idempotent call is fine)
+            setupAudioVisualizerRec(audioStreamForVisualizer); 
+            
+            currentStreamTracks = audioStreamForVisualizer.getAudioTracks(); // Get tracks from the stream we will use
+            if (currentStreamTracks.length === 0) {
+                throw new Error("No audio tracks found in the selected media stream for MediaRecorder.");
+            }
             
             const qualitySetting = audioQualitySelectElemRec ? audioQualitySelectElemRec.value : 'medium';
             let mediaRecorderOptions = { mimeType: 'audio/webm;codecs=opus' }; 
             
             if (!MediaRecorder.isTypeSupported(mediaRecorderOptions.mimeType)) {
-                console.warn("audio/webm;codecs=opus not supported, trying audio/ogg;codecs=opus");
                 mediaRecorderOptions.mimeType = 'audio/ogg;codecs=opus';
                 if (!MediaRecorder.isTypeSupported(mediaRecorderOptions.mimeType)) {
-                    console.warn("audio/ogg;codecs=opus not supported, trying audio/webm (browser default codecs)");
                     mediaRecorderOptions.mimeType = 'audio/webm'; 
                      if (!MediaRecorder.isTypeSupported(mediaRecorderOptions.mimeType)) {
-                        console.error("No suitable webm/ogg opus MIME type supported by this browser.");
-                        showNotificationCallback("Your browser does not support the required audio recording format.", "error");
-                        handleMediaRecorderCleanup(); 
-                        return;
+                        throw new Error("Browser does not support required audio recording formats (webm/ogg with opus).");
                     }
                 }
             }
@@ -785,13 +757,8 @@ const RecorderView = (() => {
             else if (qualitySetting === 'medium') mediaRecorderOptions.audioBitsPerSecond = 96000;
             else if (qualitySetting === 'low') mediaRecorderOptions.audioBitsPerSecond = 64000;
             
-            try {
-                mediaRecorder = new MediaRecorder(audioStreamForVisualizer, mediaRecorderOptions);
-            } catch (e) {
-                console.warn("Failed to create MediaRecorder with specified bitrate/mime, trying with minimal options (mimeType only):", e);
-                mediaRecorderOptions = { mimeType: mediaRecorderOptions.mimeType }; 
-                mediaRecorder = new MediaRecorder(audioStreamForVisualizer, mediaRecorderOptions);
-            }
+            // Pass the existing stream to MediaRecorder
+            mediaRecorder = new MediaRecorder(audioStreamForVisualizer, mediaRecorderOptions);
             
             audioChunks = [];
             mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
@@ -799,26 +766,22 @@ const RecorderView = (() => {
             mediaRecorder.onerror = (event) => { 
                 console.error("MediaRecorder error:", event.error?.name, event.error?.message); 
                 showNotificationCallback(`Recording error: ${event.error?.name || 'Unknown error'} - ${event.error?.message || 'Please check console.'}`, "error"); 
-                stopActualRecording(true); // Pass true for errorOccurred
+                stopActualRecording(true); 
             };
 
-            mediaRecorder.start(1000); // timeslice can be useful for future features like live processing
+            mediaRecorder.start(1000); 
             isRecording = true; isPaused = false; recordingStartTime = Date.now(); accumulatedPausedTime = 0;
             
-            // Update local meeting context
             currentRecorderMeeting.status = 'recording';
-            currentRecorderMeeting.startTimeActual = new Date().toISOString(); // Record actual start time
+            currentRecorderMeeting.startTimeActual = new Date().toISOString(); 
             if(audioQualitySelectElemRec) currentRecorderMeeting.audioQuality = audioQualitySelectElemRec.value;
             if(meetingTitleInputElemRec) currentRecorderMeeting.title = meetingTitleInputElemRec.value.trim() || currentRecorderMeeting.title || "Untitled Recording";
             if(meetingNotesElemRec) currentRecorderMeeting.notes = meetingNotesElemRec.value.trim();
             
-            // Update backend:
-            // If currentRecorderMeeting.id (sm-xxxx) exists and it's not flagged as a brand new adhoc that hasn't been saved
             if (currentRecorderMeeting.id && !currentRecorderMeeting.isNewAdhocPendingSave) { 
                 const meetingUpdatePayload = {
                     status: 'recording',
                     startTimeActual: currentRecorderMeeting.startTimeActual,
-                    // Only include notes/title if they were editable and potentially changed by recorder
                     ...(meetingNotesElemRec && !meetingNotesElemRec.readOnly && { notes: currentRecorderMeeting.notes }),
                     ...(meetingTitleInputElemRec && !meetingTitleInputElemRec.readOnly && { title: currentRecorderMeeting.title }),
                 };
@@ -828,38 +791,11 @@ const RecorderView = (() => {
                     console.error("Failed to update meeting status to 'recording' on backend:", updateError);
                     showNotificationCallback("Recording started, but failed to sync status with server.", "warning");
                 }
-            } else if (currentRecorderMeeting.isAdhoc) {
-                // For a brand new ad-hoc, we might create the meeting record on the backend now.
-                // This requires `addMeetingCallback` (SharedAppLogic.createMeetingAPI) to be robust.
-                // The backend /api/meetings POST will generate its own 'id' (sm-...) and 'recordingId' (rec-...).
-                // We need to update `currentRecorderMeeting.id` and `currentRecorderMeeting.recorderId` with these backend values.
-                const adhocPayloadForCreate = {
-                    title: currentRecorderMeeting.title,
-                    date: currentRecorderMeeting.date, // This is now() for adhoc
-                    clientEmail: currentRecorderMeeting.clientEmail || "ad-hoc-recorder@system.local", // Placeholder
-                    notes: currentRecorderMeeting.notes,
-                    // Pass the locally generated recorderId so backend can use it or link to it
-                    // This depends on how createMeetingAPI and backend are designed for adhoc.
-                    // For now, let's assume backend generates these and we might reconcile on STOP.
-                    // Or, the backend /api/meetings POST needs to accept a preferred recordingId.
-                };
-                try {
-                    // const createdMeetingData = await addMeetingCallback(adhocPayloadForCreate);
-                    // if (createdMeetingData && createdMeetingData.success && createdMeetingData.data) {
-                    //    currentRecorderMeeting.id = createdMeetingData.data.id; // Update with backend assigned meeting ID
-                    //    currentRecorderMeeting.recorderId = createdMeetingData.data.recordingId; // Crucial: update with backend assigned recording ID
-                    //    currentRecorderMeeting.isNewAdhocPendingSave = false; // It's now saved
-                    //    showNotificationCallback("Ad-hoc session registered with backend.", "info");
-                    // } else {
-                    //    throw new Error("Failed to register ad-hoc session with backend.");
-                    // }
-                    console.log("Ad-hoc recording started. Backend record creation deferred or handled by upload process.");
-                    currentRecorderMeeting.isNewAdhocPendingSave = true; // Mark that it needs full creation on stop/upload
-                } catch (createError) {
-                     console.error("Failed to create backend record for ad-hoc session at start:", createError);
-                     showNotificationCallback("Ad-hoc recording started locally. Backend sync issue.", "warning");
-                     currentRecorderMeeting.isNewAdhocPendingSave = true; // Still needs creation
-                }
+            } else if (currentRecorderMeeting.isAdhoc && currentRecorderMeeting.isNewAdhocPendingSave) {
+                // Logic for creating a meeting record for a new ad-hoc session if desired AT START.
+                // This often involves reconciling IDs returned from backend.
+                // For simplicity, often ad-hoc records are only fully created on STOP/UPLOAD.
+                console.log("Ad-hoc recording started. Backend record creation might be deferred to upload.");
             }
             
             await refreshMeetingsForRecorder(); 
@@ -871,7 +807,7 @@ const RecorderView = (() => {
         } catch (err) { 
             console.error("Error starting recording:", err);
             showNotificationCallback(`Error starting recording: ${err.message}. Check microphone permissions and selection.`, "error");
-            handleMediaRecorderCleanup(); 
+            handleMediaRecorderCleanup(); // Clean up any partial setup
             if (currentRecorderMeeting) { 
                 currentRecorderMeeting.status = 'failed_to_start'; 
                 try { 
@@ -881,28 +817,27 @@ const RecorderView = (() => {
                 } catch(e) { console.error("Failed to update meeting status on start error:", e);}
             }
             isRecording = false; 
-            updateRecorderRecordingUI(); // Reflect that it's not recording
-            // Don't necessarily go back to list, user might want to try again with different mic.
-            // showRecorderView('list'); 
+            updateRecorderRecordingUI(); 
         }
     }
     
-    /**
-     * Handles the 'stop' event of the MediaRecorder.
-     * Processes the recorded audio, uploads it, and initiates analysis.
-     */
     async function handleActualRecordingStop() { 
-        // Capture context at time of stop, as currentRecorderMeeting might change if user navigates quickly
         const stoppedMeetingContext = { ...currentRecorderMeeting }; 
-        
-        handleMediaRecorderCleanup(); // Stops timer, visualizer, audio tracks, nullifies mediaRecorder
+        const mediaRecorderMimeType = mediaRecorder?.mimeType; // Capture before nullifying
+
+        // Call cleanup for MediaRecorder related things, but visualizer stream might persist for preview
+        if (mediaRecorder && mediaRecorder.stream && mediaRecorder.stream.active) {
+            mediaRecorder.stream.getTracks().forEach(track => track.stop()); // Stop tracks used by MR
+        }
+        mediaRecorder = null; // Release MediaRecorder instance
+        // isRecording and isPaused flags are reset by stopActualRecording or handlePauseResume
+        // Don't call full handleMediaRecorderCleanup yet if we want preview to resume.
 
         if (!stoppedMeetingContext || !stoppedMeetingContext.recorderId) {
             console.error("Stopped meeting context or its recorderId is null in onstop handler");
             if(stopBtnElemRec) setButtonLoadingStateCallback(stopBtnElemRec, false);
-            isRecording = false; // Ensure flag is reset
+            isRecording = false; 
             updateRecorderRecordingUI();
-            // showRecorderView('list'); // Or stay on recording view if error
             return;
         }
         
@@ -912,17 +847,17 @@ const RecorderView = (() => {
             isRecording = false;
             updateRecorderRecordingUI();
             try {
-                // If it was a known meeting, update its status to reflect empty recording
                 if(stoppedMeetingContext.id && !stoppedMeetingContext.isAdhoc && !stoppedMeetingContext.isNewAdhocPendingSave) {
                      await updateMeetingCallback(stoppedMeetingContext.id, { status: 'failed_empty_recording' });
                 }
             } catch (e) { console.error("Failed to update status for empty recording", e); }
             await refreshMeetingsForRecorder();
-            // showRecorderView('list'); // Decide if to navigate away or allow re-record
+            // After stopping, reactivate microphone preview for the selected device
+            if (audioInputSelectElemRec) activateMicrophonePreview(audioInputSelectElemRec.value || null);
             return;
         }
 
-        const audioBlob = new Blob(audioChunks, {type: mediaRecorder?.mimeType || stoppedMeetingContext.mimeType || 'audio/webm;codecs=opus'}); 
+        const audioBlob = new Blob(audioChunks, {type: mediaRecorderMimeType || 'audio/webm;codecs=opus'}); 
         audioChunks = []; 
 
         stoppedMeetingContext.duration = formatDurationRec(Date.now() - recordingStartTime - accumulatedPausedTime); 
@@ -930,15 +865,12 @@ const RecorderView = (() => {
         stoppedMeetingContext.size = audioBlob.size > 0 ? `${(audioBlob.size / (1024*1024)).toFixed(2)}MB` : '0MB';
         
         try {
-            // Update the original meeting's status (if it's a known, non-adhoc meeting)
             if(stoppedMeetingContext.id && !stoppedMeetingContext.isAdhoc && !stoppedMeetingContext.isNewAdhocPendingSave) {
                 await updateMeetingCallback(stoppedMeetingContext.id, { 
                     status: 'uploading_to_backend', 
                     duration: stoppedMeetingContext.duration, 
-                    // Potentially update fileSizeMB if backend stores it on meeting item
                 }); 
             }
-            // For adhoc that was isNewAdhocPendingSave, the upload itself will effectively create/finalize its record.
             
             await refreshMeetingsForRecorder(); 
             showNotificationCallback("Recording stopped. Uploading to server...", "info");
@@ -949,41 +881,28 @@ const RecorderView = (() => {
             formData.append('quality', stoppedMeetingContext.audioQuality || 'medium');
             formData.append('title', stoppedMeetingContext.title || 'Untitled Recording');
             
-            // Link back to original meeting if this was derived from one (scheduled or segment)
             if (stoppedMeetingContext.originalMeetingId) { 
                 formData.append('originalMeetingId', stoppedMeetingContext.originalMeetingId);
             } else if (!stoppedMeetingContext.isAdhoc && stoppedMeetingContext.id) {
-                // If it's not adhoc (so it's a scheduled meeting that wasn't a segment)
-                // its own 'id' is the original.
                 formData.append('originalMeetingId', stoppedMeetingContext.id);
             }
-            // If it's a brand new adhoc (isAdhoc=true, isNewAdhocPendingSave=true), originalMeetingId might be omitted.
-            // The backend upload handler will treat it as a new root recording.
             
             const uploadResponse = await uploadRecordingAPI(stoppedMeetingContext.recorderId, formData); 
 
             if (uploadResponse && uploadResponse.success) {
-                // The backend /upload endpoint is expected to initiate processing and return relevant IDs/status.
-                // Update local context with any canonical IDs returned by the backend.
-                const finalMeetingId = uploadResponse.meetingId || stoppedMeetingContext.id; // sm-xxxx
-                const finalRecorderId = uploadResponse.recordingId || stoppedMeetingContext.recorderId; // rec-xxxx
+                const finalMeetingId = uploadResponse.meetingId || stoppedMeetingContext.id; 
+                const finalRecorderId = uploadResponse.recordingId || stoppedMeetingContext.recorderId; 
                 const finalStatus = uploadResponse.status || 'processing';
 
                 stoppedMeetingContext.id = finalMeetingId;
                 stoppedMeetingContext.recorderId = finalRecorderId;
                 stoppedMeetingContext.status = finalStatus;
 
-                // If this was an adhoc recording that just got its meetingId from backend:
-                if (stoppedMeetingContext.isAdhoc && stoppedMeetingContext.isNewAdhocPendingSave && finalMeetingId) {
-                    // We might not need to call updateMeetingCallback if the upload itself created the full record.
-                    // However, refreshing the list is good.
-                    console.log("Adhoc upload successful, backend processing initiated. Meeting ID:", finalMeetingId);
-                } else if (finalMeetingId) { // For existing meetings, update their status
-                    await updateMeetingCallback(finalMeetingId, { status: finalStatus, analysisAvailable: false }); // analysisAvailable becomes true after completion
+                if (finalMeetingId) { 
+                     await updateMeetingCallback(finalMeetingId, { status: finalStatus, analysisAvailable: false });
                 }
                 
                 showNotificationCallback("Upload complete. Analysis processing started by backend.", "success");
-                // Update currentRecorderMeeting to the one that was just processed before initiating analysis
                 currentRecorderMeeting = { ...stoppedMeetingContext }; 
                 initiateRecorderAnalysis(currentRecorderMeeting); 
             } else {
@@ -1001,26 +920,22 @@ const RecorderView = (() => {
         } finally {
             if(stopBtnElemRec) setButtonLoadingStateCallback(stopBtnElemRec, false);
             isRecording = false; 
-            updateRecorderRecordingUI(); // Ensure UI reflects stop
+            updateRecorderRecordingUI(); 
             await refreshMeetingsForRecorder(); 
+            // After everything, reactivate microphone preview for the selected device
+            if (audioInputSelectElemRec) activateMicrophonePreview(audioInputSelectElemRec.value || null);
         }
     }
     
-    /**
-     * Initiates polling for analysis status and displays results when complete.
-     * @param {object} meetingForAnalysis - The meeting object to get analysis for.
-     */
     async function initiateRecorderAnalysis(meetingForAnalysis) { 
         if (!analysisMeetingTitleElemRec || !analysisViewRec || !meetingForAnalysis || !meetingForAnalysis.recorderId) {
             console.error("Cannot initiate analysis: missing DOM elements or meeting data/recorderId.", meetingForAnalysis);
             showRecorderView('list'); 
             return; 
         }
-        // Ensure currentRecorderMeeting is set to the meeting whose analysis is being initiated/polled.
-        // This is important if the user navigates away and comes back, or if multiple analyses could be polled (though unlikely here).
         currentRecorderMeeting = { ...meetingForAnalysis }; 
         
-        showRecorderView('analysis');
+        showRecorderView('analysis'); // This will stop any active mic preview from recording view
         analysisMeetingTitleElemRec.textContent = `Analysis for: ${currentRecorderMeeting.title}`;
         analysisDateDisplayElemRec.textContent = `Recorded: ${new Date(currentRecorderMeeting.startTimeActual || currentRecorderMeeting.date).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })}`;
         
@@ -1034,9 +949,7 @@ const RecorderView = (() => {
         if (pollingInterval) clearInterval(pollingInterval); 
 
         async function pollStatus() {
-            // Check if the context is still for the same meeting, especially if user can navigate while polling.
             if (!currentRecorderMeeting || currentRecorderMeeting.recorderId !== meetingForAnalysis.recorderId) { 
-                console.warn("Polling stopped: Analysis context changed to a different meeting or cleared.");
                 clearInterval(pollingInterval);
                 return;
             }
@@ -1057,23 +970,21 @@ const RecorderView = (() => {
                     analysisStatusTextElemRec.textContent = 'Analysis Complete! Fetching results...';
                     const analysisData = await fetchAnalysisDataAPI(currentRecorderMeeting.recorderId); 
                     
-                    if (analysisData) { // For recorder, typically { summary, transcript }
+                    if (analysisData) { 
                         currentRecorderMeeting.analysisData = analysisData; 
                         currentRecorderMeeting.status = finalStatusLower; 
                         
-                        // Update the main meeting entry in MEETINGS_TABLE_NAME
-                        if(currentRecorderMeeting.id ) { // .id is sm-xxxx
+                        if(currentRecorderMeeting.id ){ 
                              await updateMeetingCallback(currentRecorderMeeting.id, { 
                                 status: currentRecorderMeeting.status, 
                                 analysisAvailable: true 
                             });
                         }
-                        await refreshMeetingsForRecorder(); // Refresh list to show new status
+                        await refreshMeetingsForRecorder(); 
                         
                         if(analysisPanelsElemsRec.summary) analysisPanelsElemsRec.summary.innerHTML = analysisData.summary ? analysisData.summary.replace(/\n/g, '<br>') : "<p>Summary not available.</p>";
                         if(analysisPanelsElemsRec.transcript) analysisPanelsElemsRec.transcript.innerHTML = analysisData.transcript ? `<pre class="whitespace-pre-wrap text-sm">${analysisData.transcript}</pre>` : "<p>Transcript not available.</p>";
                         
-                        // Activate the summary tab by default
                         if(analysisTabsElemsRec && analysisTabsElemsRec.length > 0) {
                             analysisTabsElemsRec.forEach(t => t.classList.remove('active'));
                             const summaryTab = Array.from(analysisTabsElemsRec).find(t => t.dataset.tab === 'summary');
@@ -1090,9 +1001,9 @@ const RecorderView = (() => {
                 } else if (finalStatusLower === 'failed') {
                     clearInterval(pollingInterval);
                     analysisStatusTextElemRec.textContent = `Analysis Failed: ${statusResult.error_message || 'Unknown error during analysis.'}`;
-                    analysisProgressBarElemRec.style.backgroundColor = 'var(--red-600)'; // Use CSS var or Tailwind class
+                    analysisProgressBarElemRec.style.backgroundColor = 'var(--red-600)'; 
                     currentRecorderMeeting.status = 'failed';
-                     if(currentRecorderMeeting.id){ // .id is sm-xxxx
+                     if(currentRecorderMeeting.id){ 
                         await updateMeetingCallback(currentRecorderMeeting.id, { status: 'failed', analysisAvailable: false });
                      }
                     await refreshMeetingsForRecorder();
@@ -1100,19 +1011,12 @@ const RecorderView = (() => {
             } catch (error) {
                 console.error("Error polling analysis status:", error);
                 analysisStatusTextElemRec.textContent = `Error updating status: ${error.message}. Retrying...`;
-                // Consider adding a retry limit before clearing interval permanently
-                // clearInterval(pollingInterval); 
             }
         }
         pollStatus(); 
         pollingInterval = setInterval(pollStatus, 8000); 
     }
     
-    /**
-     * Handles viewing analysis for a meeting that is already completed/analyzed.
-     * Typically called when a user clicks on such a meeting from the list.
-     * @param {string} recorderIdToView - The recorder ID (rec-...) of the meeting analysis to view.
-     */
     async function handleViewRecorderAnalysis(recorderIdToView) { 
         if (!recorderIdToView) {
             showNotificationCallback("No recording ID specified to view analysis.", "error");
@@ -1122,7 +1026,7 @@ const RecorderView = (() => {
         let meetingToAnalyze = meetings.find(m => m.recordingId === recorderIdToView); 
 
         if (!meetingToAnalyze) { 
-            showNotificationCallback("Meeting details not found in local cache. Attempting to refresh...", "info");
+            showNotificationCallback("Meeting details not found. Attempting to refresh...", "info");
             await refreshMeetingsForRecorder(); 
             meetingToAnalyze = meetings.find(m => m.recordingId === recorderIdToView);
             if (!meetingToAnalyze) {
@@ -1130,16 +1034,16 @@ const RecorderView = (() => {
                 return;
             }
         }
-        currentRecorderMeeting = { ...meetingToAnalyze }; // Set current context
+        currentRecorderMeeting = { ...meetingToAnalyze }; 
         
         const statusLower = currentRecorderMeeting.status?.toLowerCase();
 
         if ((statusLower === 'completed' || statusLower === 'analyzed')) {
-            if (!currentRecorderMeeting.analysisData) { // If analysis data isn't already on the object
+            if (!currentRecorderMeeting.analysisData) { 
                 showNotificationCallback("Fetching latest analysis data...", "info");
                 try {
                     const analysisData = await fetchAnalysisDataAPI(currentRecorderMeeting.recordingId);
-                    if (analysisData) { // For recorder, this is { summary, transcript }
+                    if (analysisData) { 
                         currentRecorderMeeting.analysisData = analysisData;
                     } else {
                         throw new Error("No analysis data returned from API for this completed meeting.");
@@ -1147,15 +1051,14 @@ const RecorderView = (() => {
                 } catch (error) {
                     console.error("Failed to fetch analysis data for viewing:", error);
                     showNotificationCallback("Could not load analysis data: " + error.message, "error");
-                    return; // Don't proceed to show analysis view if data fetch failed
+                    return; 
                 }
             }
             
-            // Populate and show the analysis view
             analysisMeetingTitleElemRec.textContent = `Analysis for: ${currentRecorderMeeting.title}`;
             analysisDateDisplayElemRec.textContent = `Recorded: ${new Date(currentRecorderMeeting.startTimeActual || currentRecorderMeeting.date).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })}`;
-            analysisProgressSectionElemRec.classList.add('hidden'); // Hide progress bar
-            analysisContentSectionElemRec.classList.remove('hidden'); // Show content
+            analysisProgressSectionElemRec.classList.add('hidden'); 
+            analysisContentSectionElemRec.classList.remove('hidden'); 
             
             if(analysisPanelsElemsRec.summary) analysisPanelsElemsRec.summary.innerHTML = currentRecorderMeeting.analysisData.summary ? currentRecorderMeeting.analysisData.summary.replace(/\n/g, '<br>') : "<p>Summary not available.</p>";
             if(analysisPanelsElemsRec.transcript) analysisPanelsElemsRec.transcript.innerHTML = currentRecorderMeeting.analysisData.transcript ? `<pre class="whitespace-pre-wrap text-sm">${currentRecorderMeeting.analysisData.transcript}</pre>` : "<p>Transcript not available.</p>";
@@ -1163,32 +1066,30 @@ const RecorderView = (() => {
             if(analysisTabsElemsRec && analysisTabsElemsRec.length > 0) {
                 analysisTabsElemsRec.forEach(t => t.classList.remove('active'));
                 const summaryTab = Array.from(analysisTabsElemsRec).find(t => t.dataset.tab === 'summary');
-                if (summaryTab) summaryTab.classList.add('active'); // Default to summary tab
+                if (summaryTab) summaryTab.classList.add('active'); 
             }
-            Object.values(analysisPanelsElemsRec).forEach(p => {if(p) p.classList.add('hidden');}); // Hide all panels first
-            if(analysisPanelsElemsRec.summary) analysisPanelsElemsRec.summary.classList.remove('hidden'); // Show summary panel
+            Object.values(analysisPanelsElemsRec).forEach(p => {if(p) p.classList.add('hidden');}); 
+            if(analysisPanelsElemsRec.summary) analysisPanelsElemsRec.summary.classList.remove('hidden'); 
             
             showRecorderView('analysis');
 
         } else if (statusLower === 'processing' || statusLower === 'uploading_to_backend') {
             showNotificationCallback(`Analysis for "${currentRecorderMeeting.title}" is still processing. Displaying progress.`, "info");
-            initiateRecorderAnalysis(currentRecorderMeeting); // This will switch to analysis view and show progress
+            initiateRecorderAnalysis(currentRecorderMeeting); 
         } else {
             showNotificationCallback(`Analysis not yet available for "${currentRecorderMeeting.title}". Current status: ${getMeetingStatusText(currentRecorderMeeting.status)}.`, "warning");
-            // Optionally, do not switch view if no analysis can be shown or polled for
         }
     }
     
-    /**
-     * Updates the UI elements related to recording state (indicator, status text, buttons).
-     */
     function updateRecorderRecordingUI() { 
         if (!recordingIndicatorElemRec || !recordingStatusTextElemRec || !pauseResumeBtnElemRec || !stopBtnElemRec || !newRecordingBtnRec) {
-            console.warn("Cannot update recording UI: one or more elements missing.");
             return;
         }
-        recordingIndicatorElemRec.className = `w-3.5 h-3.5 rounded-full mr-2.5 ${isRecording && !isPaused ? 'bg-red-500 status-recording' : (isRecording && isPaused ? 'bg-yellow-500 animate-none' : 'bg-gray-400 animate-none')}`;
-        recordingStatusTextElemRec.textContent = isRecording && !isPaused ? "Recording..." : (isRecording && isPaused ? "Paused" : "Idle");
+        const isActuallyRecording = isRecording && !isPaused;
+        const isActuallyPaused = isRecording && isPaused;
+
+        recordingIndicatorElemRec.className = `w-3.5 h-3.5 rounded-full mr-2.5 ${isActuallyRecording ? 'bg-red-500 status-recording' : (isActuallyPaused ? 'bg-yellow-500 animate-none' : 'bg-gray-400 animate-none')}`;
+        recordingStatusTextElemRec.textContent = isActuallyRecording ? "Recording..." : (isActuallyPaused ? "Paused" : "Idle");
         
         const pauseResumeTextSpan = pauseResumeBtnElemRec.querySelector('.button-text');
         if (pauseResumeTextSpan) { 
@@ -1197,33 +1098,27 @@ const RecorderView = (() => {
         
         stopBtnElemRec.disabled = !isRecording;
         pauseResumeBtnElemRec.disabled = !isRecording;
-        newRecordingBtnRec.disabled = isRecording; // Disable starting new if one is active
-        if(audioInputSelectElemRec) audioInputSelectElemRec.disabled = isRecording; // Disable changing mic while recording (or handle via handleAudioInputChange prompt)
+        newRecordingBtnRec.disabled = isRecording; 
+        if(audioInputSelectElemRec) audioInputSelectElemRec.disabled = isRecording; 
         if(audioQualitySelectElemRec) audioQualitySelectElemRec.disabled = isRecording;
-        if(meetingTitleInputElemRec && currentRecorderMeeting && !currentRecorderMeeting.isAdhoc) meetingTitleInputElemRec.readOnly = true; else if (meetingTitleInputElemRec) meetingTitleInputElemRec.readOnly = isRecording;
-        if(meetingNotesElemRec && currentRecorderMeeting && !currentRecorderMeeting.isAdhoc) meetingNotesElemRec.readOnly = true; else if (meetingNotesElemRec) meetingNotesElemRec.readOnly = isRecording;
+        
+        const titleIsReadOnly = isRecording || (currentRecorderMeeting && !currentRecorderMeeting.isAdhoc);
+        const notesAreReadOnly = isRecording || (currentRecorderMeeting && !currentRecorderMeeting.isAdhoc);
 
+        if(meetingTitleInputElemRec) meetingTitleInputElemRec.readOnly = titleIsReadOnly;
+        if(meetingNotesElemRec) meetingNotesElemRec.readOnly = notesAreReadOnly;
     }
 
-    /**
-     * Updates the displayed recording timer.
-     */
     function updateRecorderTimer() { 
         if (!isRecording || isPaused || !recordingTimeDisplayElemRec) return;
         const elapsed = Date.now() - recordingStartTime - accumulatedPausedTime;
         recordingTimeDisplayElemRec.textContent = formatDurationRec(elapsed);
         if(recordingProgressElemRec) {
-             // Illustrative progress: assumes a 2-hour max for full bar, adjust as needed
-            const maxDurationForProgress = 2 * 60 * 60 * 1000; // 2 hours in ms
+            const maxDurationForProgress = 2 * 60 * 60 * 1000; 
             recordingProgressElemRec.style.width = `${Math.min(100, (elapsed / maxDurationForProgress) * 100)}%`;
         }
     }
 
-    /**
-     * Formats milliseconds into HH:MM:SS string.
-     * @param {number} ms - Duration in milliseconds.
-     * @returns {string} Formatted duration string.
-     */
     function formatDurationRec(ms) { 
         if (isNaN(ms) || ms < 0) return "00:00:00";
         const totalSeconds = Math.floor(ms / 1000);
@@ -1233,11 +1128,8 @@ const RecorderView = (() => {
         return [h,m,s].map(v => String(v).padStart(2,'0')).join(':');
     }
 
-    /**
-     * Handles pausing or resuming the current recording.
-     */
     function handlePauseResumeRec() { 
-        if (!mediaRecorder || !isRecording) { // Can only pause/resume if actually recording
+        if (!mediaRecorder || !isRecording) { 
             showNotificationCallback("No active recording to pause or resume.", "warning");
             return;
         }
@@ -1253,7 +1145,6 @@ const RecorderView = (() => {
             } catch (e) {
                 console.error("Error resuming MediaRecorder:", e);
                 showNotificationCallback("Failed to resume recording.", "error");
-                // Potentially stop recording if resume fails critically
             }
         } else { 
             try {
@@ -1261,7 +1152,7 @@ const RecorderView = (() => {
                 isPaused = true; 
                 pauseStartTime = Date.now(); 
                 clearInterval(timerInterval); 
-                stopAudioVisualizerRec(); 
+                // Visualizer's draw loop will now pause itself based on isPaused & isRecording
                 showNotificationCallback("Recording Paused.", "info");
             } catch (e) {
                 console.error("Error pausing MediaRecorder:", e);
@@ -1271,14 +1162,10 @@ const RecorderView = (() => {
         updateRecorderRecordingUI();
     }
 
-    /**
-     * Stops the current recording process.
-     * @param {boolean} errorOccurred - Indicates if stopping due to an error.
-     */
     async function stopActualRecording(errorOccurred = false) { 
         if (!isRecording && !errorOccurred) { 
             if(stopBtnElemRec) setButtonLoadingStateCallback(stopBtnElemRec, false, '.button-text', '.button-loader'); 
-            updateRecorderRecordingUI(); // Ensure UI is in idle state
+            updateRecorderRecordingUI(); 
             return; 
         }
         
@@ -1286,74 +1173,60 @@ const RecorderView = (() => {
              if(stopBtnElemRec) setButtonLoadingStateCallback(stopBtnElemRec, true, '.button-text', '.button-loader');
         }
 
-        const wasRecordingFlag = isRecording; // Capture state before it's changed by async operations
-        isRecording = false; // Set flag immediately
+        const wasRecordingFlag = isRecording; 
+        isRecording = false; // Set flag early
+        isPaused = false; // Reset pause state on stop
 
         if (mediaRecorder && mediaRecorder.state !== "inactive") { 
-            mediaRecorder.stop(); // This will asynchronously trigger 'onstop' event (handleActualRecordingStop)
+            mediaRecorder.stop(); 
         } else { 
-            // If mediaRecorder is already inactive or null (e.g. error before mediaRecorder.start() completed)
-            handleMediaRecorderCleanup(); // Ensure resources are released
-            if(stopBtnElemRec) setButtonLoadingStateCallback(stopBtnElemRec, false, '.button-text', '.button-loader');
-            if (errorOccurred) { 
+            // If mediaRecorder already stopped or never started properly
+            // We still need to ensure cleanup and UI update if it was an error stop
+            if (errorOccurred) {
+                handleMediaRecorderCleanup(); // Clean up any partial media resources
                 showNotificationCallback("Recording stopped due to an error.", "error");
-            } else if (wasRecordingFlag) { // Only show "stopped" if it was actually recording and onstop won't fire
+            } else if (wasRecordingFlag) {
                  showNotificationCallback("Recording process already stopped or was not active.", "info");
             }
-            updateRecorderRecordingUI(); // Ensure UI reflects stop
-            // If onstop is not going to be called, and it wasn't an error that led here,
-            // we might need to transition UI, e.g., back to list.
+            if(stopBtnElemRec) setButtonLoadingStateCallback(stopBtnElemRec, false, '.button-text', '.button-loader');
+            updateRecorderRecordingUI(); 
+            // If onstop won't be called, and not an error, reactivate preview
             if (!errorOccurred && wasRecordingFlag && (!mediaRecorder || mediaRecorder.state === "inactive")) {
-                 await refreshMeetingsForRecorder(); 
-                 // showRecorderView('list'); // Or stay, allow user to decide next step
+                if (audioInputSelectElemRec) activateMicrophonePreview(audioInputSelectElemRec.value || null);
             }
         }
-        // The main logic continues in handleActualRecordingStop (the onstop event handler)
     }
 
-    /**
-     * Cleans up all resources related to media recording (timer, visualizer, stream tracks, MediaRecorder instance).
-     */
     function handleMediaRecorderCleanup() { 
         if(timerInterval) clearInterval(timerInterval); 
         timerInterval = null;
-        stopAudioVisualizerRec(); // Stops animation and disconnects analyser nodes
+        // Don't call stopAudioVisualizerRec() here if we want preview to resume.
+        // The visualizer will stop drawing if isRecording becomes false (handled by its draw loop).
+        // We only need to clean up the MediaRecorder's use of the stream.
 
-        if (currentStreamTracks && currentStreamTracks.length > 0) { 
-            currentStreamTracks.forEach(track => track.stop()); 
-            currentStreamTracks = []; 
+        if (mediaRecorder && mediaRecorder.stream && mediaRecorder.stream.active) {
+            // MediaRecorder uses a clone of the stream usually, or the stream itself.
+            // Stopping tracks here might affect the audioStreamForVisualizer if they are the same.
+            // It's safer to let activateMicrophonePreview handle stopping old stream tracks if a new one is started.
+            // For now, just ensure mediaRecorder is cleaned up.
+            console.log("Cleaning up MediaRecorder instance.");
         }
-        // Also ensure the main stream is stopped if it's still around
-        if (audioStreamForVisualizer && audioStreamForVisualizer.active) { 
-             audioStreamForVisualizer.getTracks().forEach(track => track.stop());
-             audioStreamForVisualizer = null;
-        }
+        
         if (mediaRecorder) {
-            // Remove event listeners to prevent memory leaks if instance is not nulled immediately
             mediaRecorder.ondataavailable = null;
             mediaRecorder.onstop = null;
             mediaRecorder.onerror = null;
             mediaRecorder = null; 
         }
         
-        audioChunks = []; // Clear any remaining chunks
-        isPaused = false; // Reset paused state
-        // isRecording is typically set by the caller of stopActualRecording or in handleActualRecordingStop
-        updateRecorderRecordingUI(); // Update UI to reflect "Idle" state
+        audioChunks = []; 
+        // isRecording, isPaused are reset by the calling function (stopActualRecording or handlePauseResume)
+        updateRecorderRecordingUI(); 
     }
 
-    /**
-     * Sets up the audio visualizer using the provided media stream.
-     * @param {MediaStream} stream - The audio stream to visualize.
-     */
     function setupAudioVisualizerRec(stream) { 
         if (!audioVisualizerCanvasElemRec || !stream || !stream.active || stream.getAudioTracks().length === 0) {
-            console.warn("Audio visualizer setup skipped: no canvas, or stream is inactive/missing audio tracks.");
-            if(audioVisualizerCanvasElemRec && audioVisualizerCanvasElemRec.getContext('2d')) { // Clear canvas if it exists
-                const canvasCtx = audioVisualizerCanvasElemRec.getContext('2d');
-                canvasCtx.fillStyle = '#e0f2fe'; 
-                canvasCtx.fillRect(0, 0, audioVisualizerCanvasElemRec.width, audioVisualizerCanvasElemRec.height);
-            }
+            stopAudioVisualizerRec(); // Ensure it's cleared if conditions aren't met
             return;
         }
         try {
@@ -1371,54 +1244,58 @@ const RecorderView = (() => {
             const source = audioContext.createMediaStreamSource(stream);
             window.currentVisualizerSourceNode = source; 
             source.connect(analyser);
-            analyser.fftSize = 256; // Number of samples for FFT (power of 2)
-            const bufferLength = analyser.frequencyBinCount; // fftSize / 2
+            analyser.fftSize = 256; 
+            const bufferLength = analyser.frequencyBinCount; 
             const dataArray = new Uint8Array(bufferLength);
 
             const canvasCtx = audioVisualizerCanvasElemRec.getContext('2d');
-            // Ensure canvas dimensions are set based on its actual display size for crisp rendering
             audioVisualizerCanvasElemRec.width = audioVisualizerCanvasElemRec.offsetWidth; 
             audioVisualizerCanvasElemRec.height = audioVisualizerCanvasElemRec.offsetHeight; 
             
             function draw() {
-                // Stop drawing if not recording, paused, or analyser is gone
-                if (!isRecording || isPaused || !analyser || !audioVisualizerCanvasElemRec) { 
+                // Draw if visualizer stream is active, AND ( (not recording) OR (recording AND not paused) )
+                const shouldDraw = audioStreamForVisualizer && audioStreamForVisualizer.active && analyser && 
+                                   (!isRecording || (isRecording && !isPaused));
+
+                if (!shouldDraw) { 
                     if (visualizerFrameId) cancelAnimationFrame(visualizerFrameId);
                     visualizerFrameId = null;
+                    // Optionally clear canvas to a static "idle" state if desired when not drawing active audio
+                    if (canvasCtx && audioVisualizerCanvasElemRec) {
+                         canvasCtx.fillStyle = 'rgb(224, 242, 254)'; 
+                         canvasCtx.fillRect(0, 0, audioVisualizerCanvasElemRec.width, audioVisualizerCanvasElemRec.height);
+                    }
                     return; 
                 }
                 visualizerFrameId = requestAnimationFrame(draw);
-                analyser.getByteFrequencyData(dataArray); // Populate dataArray with frequency data
+                analyser.getByteFrequencyData(dataArray); 
 
-                canvasCtx.fillStyle = 'rgb(224, 242, 254)'; // Light blue background (Tailwind sky-100 equivalent)
+                canvasCtx.fillStyle = 'rgb(224, 242, 254)'; 
                 canvasCtx.fillRect(0, 0, audioVisualizerCanvasElemRec.width, audioVisualizerCanvasElemRec.height);
                 
-                const barWidth = (audioVisualizerCanvasElemRec.width / bufferLength) * 1.8; // Adjusted for aesthetics
+                const barWidth = (audioVisualizerCanvasElemRec.width / bufferLength) * 1.8; 
                 let x = 0;
                 for (let i = 0; i < bufferLength; i++) {
-                    const barHeightFraction = dataArray[i] / 255.0; // Normalize to 0-1
-                    const barHeight = barHeightFraction * audioVisualizerCanvasElemRec.height * 0.9; // Scale to canvas height
+                    const barHeightFraction = dataArray[i] / 255.0; 
+                    const barHeight = barHeightFraction * audioVisualizerCanvasElemRec.height * 0.9; 
                     
-                    // Dynamic color based on amplitude - example
-                    const g = Math.floor(barHeightFraction * 150); // More green for higher amplitude
-                    const b = Math.floor(50 + barHeightFraction * 205); // More blue overall
-                    canvasCtx.fillStyle = `rgb(30, ${g}, ${b})`; // Darker blue to lighter cyan/green
+                    const g = Math.floor(barHeightFraction * 150); 
+                    const b = Math.floor(50 + barHeightFraction * 205); 
+                    canvasCtx.fillStyle = `rgb(30, ${g}, ${b})`; 
                     
                     canvasCtx.fillRect(x, audioVisualizerCanvasElemRec.height - barHeight, barWidth, barHeight);
-                    x += barWidth + 1; // Bar width + 1px spacing
+                    x += barWidth + 1; 
                 }
             }
             if (visualizerFrameId) cancelAnimationFrame(visualizerFrameId); 
-            draw(); // Start the animation loop
+            draw(); 
         } catch (e) { 
             console.error("Error setting up audio visualizer:", e); 
             showNotificationCallback("Could not start audio visualizer: " + e.message, "warning");
+            stopAudioVisualizerRec(); // Ensure cleanup on error
         }
     }
 
-    /**
-     * Stops the audio visualizer animation and clears the canvas.
-     */
     function stopAudioVisualizerRec() { 
         if (visualizerFrameId) cancelAnimationFrame(visualizerFrameId); 
         visualizerFrameId = null;
@@ -1427,27 +1304,15 @@ const RecorderView = (() => {
             canvasCtx.fillStyle = 'rgb(224, 242, 254)'; 
             canvasCtx.fillRect(0, 0, audioVisualizerCanvasElemRec.width, audioVisualizerCanvasElemRec.height);
         }
-        // Disconnect nodes to free up resources
          if (analyser && typeof analyser.disconnect === 'function') {
             analyser.disconnect();
-            // analyser = null; // Optional: nullify to be recreated if needed
         }
         if (window.currentVisualizerSourceNode && typeof window.currentVisualizerSourceNode.disconnect === 'function') {
             window.currentVisualizerSourceNode.disconnect();
-            // window.currentVisualizerSourceNode = null; // Optional
         }
-        // Consider closing audioContext only if view is fully destroyed and not reused.
-        // if (audioContext && audioContext.state !== 'closed') {
-        //    audioContext.close().catch(e => console.error("Error closing AudioContext:", e));
-        //    audioContext = null;
-        // }
+        // audioContext is not closed here to allow reuse.
     }
 
-    /**
-     * Handles deep linking to a specific recording session.
-     * @param {string} urlRecordingId - The recorder ID (rec-...) from the URL.
-     * @param {string} urlRecorderCode - The recorder access code from the URL.
-     */
     function handleDeepLink(urlRecordingId, urlRecorderCode) { 
         if (!urlRecordingId || !urlRecorderCode) {
             showNotificationCallback("Deep link is missing recording ID or access code.", "warning");
@@ -1457,11 +1322,10 @@ const RecorderView = (() => {
         showNotificationCallback(`Attempting to access via deep link for recording ID: ${urlRecordingId}`, "info");
 
         refreshMeetingsForRecorder().then(() => { 
-            const meeting = meetings.find(m => m.recordingId === urlRecordingId); // Find by rec-xxxx
+            const meeting = meetings.find(m => m.recordingId === urlRecordingId); 
             if (meeting) {
                 if (meeting.recorderAccessCode === urlRecorderCode) {
                     showNotificationCallback(`Accessing scheduled recording via link: ${meeting.title}`, "info");
-                    // Ensure meeting.id (sm-xxxx) is passed to start scheduled recording
                     handleStartScheduledRecording(meeting.id); 
                 } else {
                     showNotificationCallback(`Invalid recorder access code for meeting: ${meeting.title}. Please check the link.`, "error");
@@ -1478,21 +1342,15 @@ const RecorderView = (() => {
         });
     }
 
-    // Publicly exposed methods of the RecorderView module
     return {
-        /**
-         * Initializes the RecorderView module.
-         * Sets up callbacks, DOM references, event listeners, and initial state.
-         */
-        init: (
+        init: async ( // Make init async to await populateAudioInputDevicesRec
             _notifyCb, _switchCb, 
             _setLoadStateCb, 
-            _getMeetingByIdCb, _updateMeetingCb, _addMeetingCb, // _addMeetingCb for adhoc creation
+            _getMeetingByIdCb, _updateMeetingCb, _addMeetingCb,
             _fetchMeetings, _uploadRecording, 
             _fetchAnalysisStatus, _fetchAnalysisData, _downloadPdf,
             _generateIdCb 
         ) => {
-            // Assign callbacks from SharedAppLogic
             showNotificationCallback = _notifyCb;
             switchViewCallback = _switchCb;
             setButtonLoadingStateCallback = _setLoadStateCb;
@@ -1506,17 +1364,23 @@ const RecorderView = (() => {
             downloadAnalysisPdfAPI = _downloadPdf;
             generateIdCallback = _generateIdCb; 
             
-            // Setup the view
             initDOMReferences(); 
             setupEventListeners();
-            populateAudioInputDevicesRec(); 
+            const micsPopulated = await populateAudioInputDevicesRec(); 
             
-            // Initial data load and view display
-            refreshMeetingsForRecorder(); 
-            showRecorderView('list');
-            updateRecorderRecordingUI(); // Set initial button states etc.
+            await refreshMeetingsForRecorder(); 
+            showRecorderView('list'); // Start on list view
+            updateRecorderRecordingUI(); 
+
+            // If mics were populated and a default is selected, start preview on list view if desired,
+            // or wait until 'recording' view is shown (current behavior of showRecorderView).
+            // For now, activateMicrophonePreview is called when switching to 'recording' view.
+            if (micsPopulated && audioInputSelectElemRec.value) {
+                 // activateMicrophonePreview(audioInputSelectElemRec.value); // Optionally start preview even on list view
+                 console.log("Microphones populated. Preview will start when recording view is active.");
+            }
         },
-        getHTML, // Expose getHTML to allow injection by the main page script
-        handleDeepLink // Expose handleDeepLink for invocation from main page script
+        getHTML,
+        handleDeepLink 
     };
 })();
