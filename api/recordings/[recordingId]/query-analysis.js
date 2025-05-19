@@ -1,17 +1,17 @@
 // File: /api/recordings/[recordingId]/query-analysis.js
 // Handles POST /api/recordings/:recordingId/query-analysis
 // Fetches LATEST COMPLETED analysis context, proxies Q&A, stores history.
+// Admins now use the salesperson's Q&A context/agent.
 
 import { authenticateTokenOrClientAccess } from '../../utils/auth.js'; 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, UpdateCommand, QueryCommand } from "@aws-sdk/lib-dynamodb"; // QueryCommand
-// import fetch from 'node-fetch'; // Or global fetch in Node 18+
+import { DynamoDBDocumentClient, UpdateCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 
 const RECORDINGS_ANALYSIS_TABLE_NAME = process.env.RECORDINGS_ANALYSIS_TABLE_NAME;
-const REGION = process.env.MY_AWS_REGION; // Ensure this is MY_AWS_REGION or AWS_REGION as per your Vercel env
+const REGION = process.env.MY_AWS_REGION; 
 const SALES_QNA_API_GATEWAY_ENDPOINT = process.env.SALES_QNA_API_GATEWAY_ENDPOINT;
 const CLIENT_QNA_API_GATEWAY_ENDPOINT = process.env.CLIENT_QNA_API_GATEWAY_ENDPOINT;
-const API_GATEWAY_KEY = process.env.API_GATEWAY_KEY; // Optional
+const API_GATEWAY_KEY = process.env.API_GATEWAY_KEY; 
 
 if (!RECORDINGS_ANALYSIS_TABLE_NAME || !REGION || 
     !SALES_QNA_API_GATEWAY_ENDPOINT || !CLIENT_QNA_API_GATEWAY_ENDPOINT ||
@@ -24,7 +24,7 @@ if (REGION && RECORDINGS_ANALYSIS_TABLE_NAME) {
     try {
         const ddbClient = new DynamoDBClient({ region: REGION });
         docClient = DynamoDBDocumentClient.from(ddbClient);
-        console.log(`DynamoDB client initialized successfully for region: ${REGION} in /api/recordings/[recordingId]/query-analysis.js`);
+        // console.log(`DynamoDB client initialized successfully for region: ${REGION} in /api/recordings/[recordingId]/query-analysis.js`);
     } catch (error) {
         console.error("Failed to initialize DynamoDB client in /api/recordings/[recordingId]/query-analysis.js:", error);
     }
@@ -34,30 +34,29 @@ if (REGION && RECORDINGS_ANALYSIS_TABLE_NAME) {
 
 /**
  * Helper to get the latest analysis item for a given recordingId that is 'completed' or 'analyzed'.
- * @param {DynamoDBDocumentClient} client - The DynamoDB Document Client instance.
- * @param {string} recId - The recordingId to query for.
- * @returns {Promise<object|null>} The latest completed/analyzed item or null.
  */
 async function getLatestCompletedAnalysisItem(client, recId) {
-    if (!client || !RECORDINGS_ANALYSIS_TABLE_NAME) return null;
+    if (!client || !RECORDINGS_ANALYSIS_TABLE_NAME) {
+        console.error("getLatestCompletedAnalysisItem: Client or table name not configured.");
+        return null;
+    }
     const params = {
         TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
         KeyConditionExpression: "recordingId = :rid",
-        // Filter for completed or analyzed status
         FilterExpression: "analysisStatus = :statusCompleted OR analysisStatus = :statusAnalyzed",
         ExpressionAttributeValues: {
             ":rid": recId,
             ":statusCompleted": "completed",
-            ":statusAnalyzed": "analyzed" // If you use a distinct "analyzed" status
+            ":statusAnalyzed": "analyzed" 
         },
-        ScanIndexForward: false, // Sort by 'createdAt' (range key) descending
+        ScanIndexForward: false, 
         Limit: 1
     };
     try {
         const { Items } = await client.send(new QueryCommand(params));
         return (Items && Items.length > 0) ? Items[0] : null;
     } catch (error) {
-        console.error(`Error querying latest completed analysis for ${recId}:`, error);
+        console.error(`Error querying latest completed analysis for ${recId} (Q&A):`, error);
         throw error;
     }
 }
@@ -89,30 +88,35 @@ export default async function handler(req, res) {
     }
     const role = authResult.role;
     const userIdForLog = authResult.user ? authResult.user.userId : 'client_session';
+    const userEmailForLog = authResult.user ? authResult.user.email : 'client_session';
+
 
     try {
-        // 1. Fetch the LATEST COMPLETED analysisData from DynamoDB
         const latestCompletedAnalysis = await getLatestCompletedAnalysisItem(docClient, recordingId);
 
         if (!latestCompletedAnalysis || !latestCompletedAnalysis.analysisData || !latestCompletedAnalysis.analysisData.transcript) {
             return res.status(404).json({ success: false, message: 'Completed transcript context not found for Q&A for this recording.' });
         }
-        // Note: analysisStatus check is already part of getLatestCompletedAnalysisItem
 
         const transcriptContext = latestCompletedAnalysis.analysisData.transcript;
         let queryAgentIdentifier = null;
         let additionalContextForAgent = {}; 
         let targetApiGatewayEndpoint;
+        let effectiveRoleForQnA = role; // The role context to use for Q&A
 
-        // Determine Q&A agent and context based on user role
-        if (role === 'salesperson' && latestCompletedAnalysis.analysisData.salespersonAnalysis) {
+        if (role === 'admin') {
+            console.log(`API [query-analysis.js]: Admin user ("${userEmailForLog}") detected. Using salesperson Q&A context for recording ${recordingId}.`);
+            effectiveRoleForQnA = 'salesperson'; // Admin will use salesperson's Q&A setup
+        }
+
+        if (effectiveRoleForQnA === 'salesperson' && latestCompletedAnalysis.analysisData.salespersonAnalysis) {
             queryAgentIdentifier = latestCompletedAnalysis.analysisData.salespersonAnalysis.queryAgentIdentifier;
             additionalContextForAgent = { 
                 summary: latestCompletedAnalysis.analysisData.salespersonAnalysis.tailoredSummary, 
                 keyPoints: latestCompletedAnalysis.analysisData.salespersonAnalysis.keyPoints 
             };
             targetApiGatewayEndpoint = SALES_QNA_API_GATEWAY_ENDPOINT;
-        } else if (role === 'client' && latestCompletedAnalysis.analysisData.clientAnalysis) {
+        } else if (effectiveRoleForQnA === 'client' && latestCompletedAnalysis.analysisData.clientAnalysis) {
             queryAgentIdentifier = latestCompletedAnalysis.analysisData.clientAnalysis.queryAgentIdentifier;
             additionalContextForAgent = { 
                 summary: latestCompletedAnalysis.analysisData.clientAnalysis.tailoredSummary, 
@@ -120,44 +124,37 @@ export default async function handler(req, res) {
             };
             targetApiGatewayEndpoint = CLIENT_QNA_API_GATEWAY_ENDPOINT;
         } else {
-            // Fallback or general agent if role-specific analysis section is missing
-            console.warn(`Q&A: Role-specific analysis section not found for role "${role}" on recording "${recordingId}". Using general context if available or failing.`);
-            // You might define a default agent or context here, or return an error.
-            // For now, let's assume it requires the specific section.
+            console.warn(`Q&A: Appropriate analysis section not found for effective role "${effectiveRoleForQnA}" (actual role: "${role}") on recording "${recordingId}".`);
             return res.status(400).json({ success: false, message: "Q&A agent not configured for your role or this recording's current analysis state." });
         }
         
         if (!queryAgentIdentifier || !targetApiGatewayEndpoint) {
-             console.error(`Configuration error: Query agent identifier or target endpoint missing for role ${role}, recording ${recordingId}`);
+             console.error(`Configuration error: Query agent identifier or target endpoint missing for effective role ${effectiveRoleForQnA}, recording ${recordingId}`);
              return res.status(500).json({ success: false, message: "Internal server error: Q&A agent configuration missing." });
         }
 
-        // 2. Call the role-specific Q&A API Gateway endpoint
         const apiGwPayload = {
             question,
             transcriptContext,
             additionalRoleContext: additionalContextForAgent,
             agentIdentifier: queryAgentIdentifier, 
             recordingId, 
-            userId: userIdForLog, // For logging/auditing in the Q&A Lambda
-            analysisCreatedAt: latestCompletedAnalysis.createdAt // Pass the timestamp of the context used
+            userId: userIdForLog, 
+            analysisCreatedAt: latestCompletedAnalysis.createdAt 
         };
         
-        const fetchOptions = {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                ...(API_GATEWAY_KEY && { 'x-api-key': API_GATEWAY_KEY }),
-                // Forward original auth if Q&A lambda needs user context beyond userIdForLog
-                // ...(req.headers.authorization && { 'Authorization': req.headers.authorization }) 
-            },
-            body: JSON.stringify(apiGwPayload)
+        const fetchOptions = { /* ... as before ... */ };
+        fetchOptions.method = 'POST';
+        fetchOptions.headers = { 
+            'Content-Type': 'application/json',
+            ...(API_GATEWAY_KEY && { 'x-api-key': API_GATEWAY_KEY }),
         };
+        fetchOptions.body = JSON.stringify(apiGwPayload);
 
-        console.log(`API: Calling Q&A Agent at ${targetApiGatewayEndpoint} for recording ${recordingId}, role ${role}, analysis context from ${latestCompletedAnalysis.createdAt}`);
+        console.log(`API: Calling Q&A Agent at ${targetApiGatewayEndpoint} for recording ${recordingId}, actual role ${role} (using ${effectiveRoleForQnA} context), analysis from ${latestCompletedAnalysis.createdAt}`);
         const apiGwResponse = await fetch(targetApiGatewayEndpoint, fetchOptions);
         
-        const responseBodyText = await apiGwResponse.text(); // Read as text first for better error diagnosis
+        const responseBodyText = await apiGwResponse.text(); 
         let qnaResult;
         try {
             qnaResult = JSON.parse(responseBodyText);
@@ -171,27 +168,27 @@ export default async function handler(req, res) {
             throw new Error(qnaResult.message || `Q&A Agent API Gateway error: ${apiGwResponse.status}`);
         }
 
-        // 3. Store Q&A pair in DynamoDB (Append to list in the specific analysis item used)
         const qnaEntry = { 
             timestamp: new Date().toISOString(), 
-            roleOfQuerier: role, 
+            roleOfQuerier: role, // Log the actual role of the admin/user
             userId: userIdForLog, 
             question, 
             answerFromAgent: qnaResult.answer, 
-            agentUsed: queryAgentIdentifier 
+            agentUsed: queryAgentIdentifier,
+            contextRoleUsed: effectiveRoleForQnA // Log which role's context was used
         };
         
         const updateQnAParams = {
             TableName: RECORDINGS_ANALYSIS_TABLE_NAME,
             Key: { 
                 recordingId: recordingId, 
-                createdAt: latestCompletedAnalysis.createdAt // IMPORTANT: Update the specific analysis item version
+                createdAt: latestCompletedAnalysis.createdAt 
             },
             UpdateExpression: "SET #ad.#ih = list_append(if_not_exists(#ad.#ih, :empty_list), :qnaEntryVal), #ad.#ua = :now",
             ExpressionAttributeNames: { 
                 "#ad": "analysisData",
                 "#ih": "interactiveQnAHistory",
-                "#ua": "updatedAt" // Track when Q&A history was last updated
+                "#ua": "qnaLastUpdatedAt" // More specific updatedAt for Q&A history
             },
             ExpressionAttributeValues: { 
                 ":qnaEntryVal": [qnaEntry],
@@ -201,11 +198,11 @@ export default async function handler(req, res) {
         };
         await docClient.send(new UpdateCommand(updateQnAParams));
         
-        console.log(`API: Q&A for ${recordingId} (Role: ${role}, Analysis: ${latestCompletedAnalysis.createdAt}) processed and logged. Question: "${question}"`);
+        console.log(`API: Q&A for ${recordingId} (Role: ${role}, Analysis: ${latestCompletedAnalysis.createdAt}) processed and logged.`);
         res.status(200).json({ success: true, answer: qnaResult.answer });
 
     } catch (error) {
-        console.error(`API Error querying analysis for recording ${recordingId}:`, error);
+        console.error(`API Error querying analysis for recording ${recordingId}, role ${role}:`, error);
         res.status(500).json({ success: false, message: 'Failed to query analysis.', errorDetails: error.message });
     }
 }
