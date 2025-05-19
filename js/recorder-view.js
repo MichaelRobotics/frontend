@@ -736,6 +736,177 @@ const RecorderView = (() => {
         }
     }
 
+    async function renderRecorderMeetingList() {
+        if (!meetingListRec) {
+            console.error('Meeting list container not found');
+            return;
+        }
+
+        try {
+            // Show loading state
+            meetingListRec.innerHTML = '<div class="loading-spinner">Loading meetings...</div>';
+            
+            // Clear previous list
+            meetingListRec.innerHTML = '';
+            
+            if (!meetings || meetings.length === 0) {
+                meetingListRec.innerHTML = '<div class="no-meetings">No scheduled meetings found</div>';
+                return;
+            }
+
+            // Sort meetings by date
+            const sortedMeetings = [...meetings].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            sortedMeetings.forEach(meeting => {
+                const meetingItemElement = document.createElement('div');
+                meetingItemElement.classList.add('meeting-item-card-rec');
+                
+                // Add status indicator
+                const statusClass = getMeetingStatusClass(meeting.status);
+                const statusText = getMeetingStatusText(meeting.status);
+                
+                meetingItemElement.innerHTML = `
+                    <div class="meeting-item-header">
+                        <h3>${meeting.title}</h3>
+                        <span class="meeting-status ${statusClass}">${statusText}</span>
+                    </div>
+                    <div class="meeting-item-details">
+                        <p class="meeting-date">
+                            <i class="fas fa-calendar"></i>
+                            ${new Date(meeting.date).toLocaleString()}
+                        </p>
+                        <p class="meeting-duration">
+                            <i class="fas fa-clock"></i>
+                            ${meeting.duration || '30'} minutes
+                        </p>
+                        <p class="meeting-participants">
+                            <i class="fas fa-users"></i>
+                            ${meeting.participants?.length || 0} participants
+                        </p>
+                    </div>
+                    <div class="meeting-item-notes">
+                        ${meeting.notes ? `<p>${meeting.notes}</p>` : ''}
+                    </div>
+                `;
+
+                // Only add click handler if meeting is not already recorded
+                if (meeting.status !== 'recorded') {
+                    meetingItemElement.addEventListener('click', () => {
+                        handleStartScheduledRecording(meeting.id);
+                    });
+                    meetingItemElement.classList.add('clickable');
+                }
+
+                meetingListRec.appendChild(meetingItemElement);
+            });
+        } catch (error) {
+            console.error('Error rendering meeting list:', error);
+            meetingListRec.innerHTML = '<div class="error-message">Failed to load meetings. Please try again.</div>';
+            showNotificationCallback('Failed to load meetings', 'error');
+        }
+    }
+
+    function getMeetingStatusClass(status) {
+        switch (status) {
+            case 'scheduled': return 'status-scheduled';
+            case 'recording': return 'status-recording';
+            case 'recorded': return 'status-recorded';
+            case 'analyzed': return 'status-analyzed';
+            default: return 'status-unknown';
+        }
+    }
+
+    function getMeetingStatusText(status) {
+        switch (status) {
+            case 'scheduled': return 'Scheduled';
+            case 'recording': return 'Recording';
+            case 'recorded': return 'Recorded';
+            case 'analyzed': return 'Analyzed';
+            default: return 'Unknown';
+        }
+    }
+
+    async function handleStartScheduledRecording(meetingId) {
+        try {
+            // Validate meeting ID
+            if (!meetingId) {
+                throw new Error('Invalid meeting ID');
+            }
+
+            // Find meeting in cache
+            const meetingObject = getMeetingByIdCallback(meetingId);
+            if (!meetingObject) {
+                showNotificationCallback('Meeting not found. Please refresh the list.', 'error');
+                return;
+            }
+
+            // Validate meeting status
+            if (meetingObject.status === 'recorded') {
+                showNotificationCallback('This meeting has already been recorded.', 'warning');
+                return;
+            }
+
+            if (meetingObject.status === 'recording') {
+                showNotificationCallback('This meeting is already being recorded.', 'warning');
+                return;
+            }
+
+            // Check if meeting time is valid
+            const meetingTime = new Date(meetingObject.date);
+            const now = new Date();
+            const timeDiff = meetingTime - now;
+            
+            // Allow starting 5 minutes before scheduled time
+            if (timeDiff > 5 * 60 * 1000) {
+                showNotificationCallback('This meeting cannot be started yet. Please wait until the scheduled time.', 'warning');
+                return;
+            }
+
+            // Set current meeting
+            currentRecorderMeeting = {
+                ...meetingObject,
+                recorderId: meetingObject.recordingId || meetingObject.id // Ensure we have the correct ID for recording
+            };
+
+            // Update UI elements
+            if (meetingTitleInputElemRec) {
+                meetingTitleInputElemRec.value = currentRecorderMeeting.title;
+                meetingTitleInputElemRec.disabled = true; // Lock title for scheduled meetings
+            }
+
+            if (meetingNotesElemRec) {
+                meetingNotesElemRec.value = currentRecorderMeeting.notes || '';
+                meetingNotesElemRec.disabled = true; // Lock notes for scheduled meetings
+            }
+
+            if (recordingMeetingTitleElemRec) {
+                recordingMeetingTitleElemRec.textContent = `Recording: ${currentRecorderMeeting.title}`;
+            }
+
+            // Show recording view
+            showRecorderView('recording');
+
+            // Start the actual recording
+            await startActualRecording();
+
+            // Update meeting status in backend
+            try {
+                await updateMeetingStatusCallback(currentRecorderMeeting.recorderId, 'recording');
+                showNotificationCallback('Recording started successfully', 'success');
+            } catch (error) {
+                console.error('Failed to update meeting status:', error);
+                showNotificationCallback('Recording started but failed to update status', 'warning');
+            }
+
+        } catch (error) {
+            console.error('Error starting scheduled recording:', error);
+            showNotificationCallback('Failed to start recording: ' + error.message, 'error');
+            
+            // Reset state
+            currentRecorderMeeting = null;
+            showRecorderView('list');
+        }
+    }
 
     return {
         init: (
